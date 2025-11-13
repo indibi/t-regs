@@ -1,0 +1,82 @@
+[project]
+name = "tensor-regressor"
+version = "0.1.0"
+description = "A python package of (multi-)linear (regression) models for tensor data"
+keywords = ["tensor", "regression", "high-dimensional", "machine learning"]
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+{name= "Mert Indibi", email="indibimert2@gmail.com"},
+]
+readme = "README.md"
+requires-python = ">=3.13"
+classifiers = [
+  "Intended Audience :: Science/Research",
+  "Programming Language :: Python :: 3.13",
+  "Natural Language :: English",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Private :: Do Not Upload",
+]
+
+dependencies = [
+  "einops>=0.8.1",
+  "jupyterlab>=4.4.10",
+  "matplotlib>=3.10.7",
+  "networkx>=3.5",
+  "numpy>=2.3.4",
+  "pandas>=2.3.3",
+  "scikit-learn>=1.7.2",
+  "scipy>=1.16.3",
+  "tensorboard==2.20.0",
+  "torch>=2.7.1",
+  "torchvision>=0.22.1",
+]
+
+[dependency-groups]
+dev = [
+    "bokeh>=3.8.0",
+    "dask>=2025.10.0",
+    "geopandas>=1.1.1",
+    "hydra-core>=1.3.2",
+    "ipywidgets>=8.1.8",
+    "nx-cugraph-cu12>=25.10.0",
+    "optuna>=4.5.0",
+    "optuna-dashboard>=0.19.0",
+    "optuna-integration>=4.5.0",
+    "plotly>=6.4.0",
+    "pyyaml>=6.0.3",
+    "tqdm>=4.67.1",
+    "wandb>=0.22.3",
+]
+
+
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cpu", marker = "sys_platform != 'linux'" },
+  { index = "pytorch-cu126", marker = "sys_platform == 'linux'" },
+]
+torchvision = [
+  { index = "pytorch-cpu", marker = "sys_platform != 'linux'" },
+  { index = "pytorch-cu126", marker = "sys_platform == 'linux'" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[tool.uv.workspace]
+members = [
+    "labrat",
+]
+
+
+[build-system]
+requires = ["uv_build>=0.9.7,<0.10.0"]
+build-backend = "uv_build"
+
