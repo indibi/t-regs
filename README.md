@@ -1,5 +1,5 @@
-# Tensor Regressor
-Library of algorithms that solve regularized inverse problems in the variational estimator form
+# T-Regs 
+Library of Tensor Regression algorithms that solve regularized inverse problems in the variational estimator form
 
 $$
 \begin{aligned} \mathrm{m}&\mathrm{inimize} &F(\beta, \mathcal{D}) + J(\beta) \\

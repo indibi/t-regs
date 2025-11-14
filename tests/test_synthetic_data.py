@@ -1,7 +1,7 @@
 import numpy as np
 
-from tensor_regressor.synthetic_data import qmult, generate_low_rank_data
-from tensor_regressor.multilinear_ops import unfold
+from t_regs.synthetic_data import qmult, generate_low_rank_data
+from t_regs.multilinear_ops import unfold
 import unittest
 
 

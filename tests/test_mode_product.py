@@ -1,7 +1,7 @@
 import unittest
 import numpy as np
 import torch
-from tensor_regressor.multilinear_ops import mode_n_product, multi_mode_product
+from t_regs.multilinear_ops import mode_n_product, multi_mode_product
 
 class TestModeProduct(unittest.TestCase):
 

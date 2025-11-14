@@ -2,9 +2,9 @@ import unittest
 
 import numpy as np
 
-from tensor_regressor.multilinear_ops import fold, unfold
-from tensor_regressor.multilinear_ops.matricization import unfold_convert_index
-from tensor_regressor.proximal_ops import soft_threshold
+from t_regs.multilinear_ops import fold, unfold
+from t_regs.multilinear_ops.matricization import unfold_convert_index
+from t_regs.proximal_ops import soft_threshold
 
 
 class TestTensor(unittest.TestCase):

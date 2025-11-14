@@ -1,5 +1,5 @@
 [project]
-name = "tensor-regressor"
+name = "t-regs"
 version = "0.1.0"
 description = "A python package of (multi-)linear (regression) models for tensor data"
 keywords = ["tensor", "regression", "high-dimensional", "machine learning"]

@@ -1,4 +1,4 @@
-# Tensor Regressor Project To-Do:
+# T-Regs Project To-Do:
 
 Status Markers:
 
