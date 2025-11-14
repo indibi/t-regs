@@ -106,7 +106,7 @@ class HoSVD:
             self.core_dims = core_dims
         
         self.C = None
-        self.Us = [None for i in range(self.N)]
+        self.Us = [None for i in range(self.N)] # pylint: disable=invalid-name
         self.svals = [None for i in range(self.N)]
 
     @torch.no_grad()
@@ -117,15 +117,15 @@ class HoSVD:
             core (torch.Tensor): Core tensor of the decomposition
             factors (list of torch.Tensor): List of the factor matrices
         """
-        
+
         for i in range(self.N):
             self.Us[i], self.svals[i], _ = mode_svd(self.X, i+1, self.core_dims[i])
-        
+
         self.C = mode_n_product(self.X, self.Us[0].T, 1)
         for i in range(1,self.N):
             self.C = mode_n_product(self.C, self.Us[i].T, i+1)
         return self.C, self.Us
-    
+
     @torch.no_grad()
     def trank(self, r_tol=None, a_tol=None, method='GCV'):
         """Estimates the multilinear rank of the tensor.
@@ -146,11 +146,11 @@ class HoSVD:
         """
         pass
         # if method == 'GCV':
-        
+
         # elif method == 'SVD_tol':
 
         #     for i in range(self.N):
         #         mX = matricize(self.X, i+1)
         #         torch.linalg.matrix_rank(self.X)
         #         torch.matrix_rank()
-        
+

@@ -21,8 +21,8 @@ from time import perf_counter
 import numpy as np
 import torch
 
-from src.algorithms.als_base_class import ALSBaseClass
-from src.models.tucker_decomp.hosvd import HoSVD
+from ....optimization_algs.als_base_class import ALSBaseClass
+from ....models.tensor_decomp.tucker.hosvd import HoSVD
 from ....multilinear_ops import mode_n_product, mode_svd
 
 
@@ -66,7 +66,7 @@ class HoOI(ALSBaseClass):
             raise ValueError('Number of ranks and tensor mode do not match.')
         
         # Initialize with HOSVD
-        hosvd = HoSVD(X, n_ranks)
+        hosvd = HoSVD(X, core_dims=n_ranks)
         self.C, self.Us = hosvd()
 
     @torch.no_grad

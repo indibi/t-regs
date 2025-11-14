@@ -35,9 +35,10 @@ dependencies = [
 [dependency-groups]
 dev = [
     "bokeh>=3.8.0",
-    "dask>=2025.10.0",
+    "dask[distributed]>=2025.10.0",
     "geopandas>=1.1.1",
     "hydra-core>=1.3.2",
+    "ipykernel>=7.1.0",
     "ipywidgets>=8.1.8",
     "nx-cugraph-cu12>=25.10.0",
     "optuna>=4.5.0",

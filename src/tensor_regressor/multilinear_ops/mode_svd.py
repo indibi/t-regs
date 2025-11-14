@@ -2,6 +2,7 @@ import torch
 
 from numpy.linalg import svd
 from scipy.sparse.linalg import svds
+
 from .matricization import fold, unfold
 
 def mode_svd(X, n, rank=None):
@@ -21,12 +22,12 @@ def mode_svd(X, n, rank=None):
         rank = X.shape[n-1]
     if rank == X.shape[n-1]:
         if isinstance(X, torch.Tensor):
-            U, S, Vh = torch.linalg.svd(t2m(X, n), full_matrices=False)
+            U, S, Vh = torch.linalg.svd(unfold(X, n), full_matrices=False) # pylint: disable=not-callable
         else:
             U, S, Vh = svd(unfold(X, n), full_matrices=False)
     else:
         if isinstance(X, torch.Tensor):
-            U, S, Vh = torch.linalg.svd(unfold(X, n), full_matrices=False)
+            U, S, Vh = torch.linalg.svd(unfold(X, n), full_matrices=False) # pylint: disable=not-callable
             U = U[:, :rank]
             S = S[:rank]
             Vh = Vh[:rank, :]

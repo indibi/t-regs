@@ -15,8 +15,8 @@ class TuckerTensor:
     """Class representing a tensor in Tucker decomposition format.
 
     Attributes:
-        core (np.ndarray or torch.Tensor): Core tensor.
-        factors (list of np.ndarray or torch.Tensor): Factor matrices for each mode.
+        core [np.ndarray|torch.Tensor]: Core tensor.
+        factors list[np.ndarray|torch.Tensor]: Factor matrices for each mode.
     """
 
     def __init__(self, core, factors):

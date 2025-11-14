@@ -1,11 +1,13 @@
+"""Module for the singular value thresholding proximal operators."""
+
 import numpy as np
 import torch
 from ..multilinear_ops import unfold, fold
 
 
 
-def soft_svt(T, tau):
-    """Soft thresholding of the singular values of a matrix with the thresholding parameter tau.
+def soft_svt(T, tau): # pylint: disable=invalid-name
+    """Soft threshold the singular values of matrix T with threshold tau.
     
     Args:
         T (np.ndarray or torch.Tensor): Input matrix to be thresholded.
@@ -14,19 +16,19 @@ def soft_svt(T, tau):
     Returns:
         Xnew: Thresholded matrix.
     """
-    if isinstance(X, np.ndarray):
-        U, S, V = np.linalg.svd(T,  full_matrices=False)
+    if isinstance(T, np.ndarray):
+        U, S, V = np.linalg.svd(T,  full_matrices=False) # pylint: disable=invalid-name
         s = S-tau
         smask = s > 0
         S = np.diag(s[smask])
         nuc_norm = sum(s[smask])
-        X = U[:, smask]@S@V[smask, :]
+        X = U[:, smask]@S@V[smask, :] # pylint: disable=invalid-name
         return X, nuc_norm
     elif isinstance(T, torch.Tensor):
         try:
-            U, S, V = torch.linalg.svd(T, full_matrices=False)
+            U, S, V = torch.linalg.svd(T, full_matrices=False) # pylint: disable=not-callable
         except:
-            U, S, V = torch.linalg.svd(T, full_matrices=False, driver='gesvda')
+            U, S, V = torch.linalg.svd(T, full_matrices=False, driver='gesvda') # pylint: disable=not-callable
         s = S-tau
         smask = s > 0
         S = s[smask]
