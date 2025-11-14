@@ -163,9 +163,9 @@ def unfold_convert_index(n,i,k):
     Returns:
         idx (tuple): Index of the element corresponding to the matricized tensor
     """
-    if isinstance(n, tuple):
+    if not isinstance(n, tuple):
         raise TypeError("Dimension of the tensor, n is not a tuple")
-    if isinstance(i, tuple):
+    if not isinstance(i, tuple):
         raise TypeError("index of the tensor element, i is not a tuple")
     if len(n) ==1:
         raise ValueError(f"The provided dimension n={n} is for the vector case")
