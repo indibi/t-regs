@@ -21,7 +21,7 @@ from time import perf_counter
 import numpy as np
 import torch
 
-from ....optimization_algs.als_base_class import ALSBaseClass
+from ....solvers.als_base_class import ALSBaseClass
 from ....models.tensor_decomp.tucker.hosvd import HoSVD
 from ....multilinear_ops import mode_n_product, mode_svd
 

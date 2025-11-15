@@ -11,7 +11,7 @@ from ...src.multilinear_ops.tensorize import tensorize
 
 class PCA(PCABaseClass):
     """Principal Component Analysis (PCA) model"""
-    def __init__(self, X: , **kwargs):
+    def __init__(self, X, **kwargs):
         """Initialize the PCA model.
         
         Args:

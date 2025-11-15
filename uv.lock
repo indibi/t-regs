@@ -2968,6 +2968,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "einops" },
+    { name = "ipykernel" },
     { name = "jupyterlab" },
     { name = "matplotlib" },
     { name = "networkx" },
@@ -3006,6 +3007,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "einops", specifier = ">=0.8.1" },
+    { name = "ipykernel", specifier = ">=7.1.0" },
     { name = "jupyterlab", specifier = ">=4.4.10" },
     { name = "matplotlib", specifier = ">=3.10.7" },
     { name = "networkx", specifier = ">=3.5" },

@@ -21,7 +21,7 @@ class CMA_ES(ABC):
         self.max_gen = max_gen
         self.population = None
         self._sample()
-        self._best_solution = 
+        # self._best_solution = 
 
 
     @abstractmethod

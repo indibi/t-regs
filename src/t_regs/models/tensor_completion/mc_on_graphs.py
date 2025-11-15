@@ -20,10 +20,10 @@ import matplotlib.pyplot as plt
 
 from ....multilinear_ops import matricize, tensorize
 from ....proximal_ops import mode_n_soft_svt
-from ....algorithms.admm_base_class import TwoBlockADMMBase
+from ....solvers.admm_base_class import TwoBlockADMMBase
 from ....multilinear_ops.graph_linear_operators import GraphLinearOperator
 from ....multilinear_ops import TuckerOperator, SumTuckerOperator
-from ....algorithms.conjugate_gradient import conjugate_gradient
+from ....solvers.conjugate_gradient import conjugate_gradient
 
 
 class MCOnGraphs(TwoBlockADMMBase):
