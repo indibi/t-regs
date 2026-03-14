@@ -1,25 +1,32 @@
 # T-Regs Project To-Do:
 
-Status Markers:
+## Demonstrations
+Create model demonstrations for,
+- [ ] Regression
+- [ ] Tensor Recovery
+- [ ] Anomaly Detection
 
-:smile:
+## Documentation
+- [ ] Writing a document showing the repository structure and available algorithms implemented
+- [ ] Creating a better logical structure for the repository that makes a distinction between models and decomposition algorithms without overly complicating it.
+- [ ] Creating artwork for the repository.
+- [ ] Creating a library documentation.
+- [ ] Converting the docstyle to NumPy and ensuring consistency.
+- [ ] Re-structuring the `todo.md` file.
 
+## Software
+### Models
 - `models/`
   - `matrix_decomp/`
     - `nmf/`: <span style="color:gray;">% Non-negative Matrix Factorizations</span>
     - `pmf/`: <span style="color:gray;">% Penalized Matrix Factorizations</span>
       - Sparse SVD - Power Algorithm
-      - SPC
-        - [ ] Implementing projection to l1 ball
-        - [ ] Fit score
+      - [ ] SPC
       - [ ] PMD(FL) <span style="color:gray;">% Penalized Matrix Decomposition with Fused Lasso penalty</span>
       - [ ] Implementing (generalized) fused-lasso subproblem
+      - [ ] Sparse and Functional PCA (`rank1_sfpca`)
       - `deflation.py`
     - `gpmf/` <span style="color:gray;">% Generalized Penalized Matrix Factorizations</span>
-      - Sparse and Functional PCA (rank1_sfpca)
-        - [ ] Tested
-        - [ ] Fit Score Implemented
-      - 
     - `generalized_svd.py` <span style="color:gray;">% Generalized Least Squares Matrix Decomposition GMD (Allen et. al.) </span>
       - [ ] Tested
       - [ ] Fit score implemented
@@ -35,17 +42,9 @@ Status Markers:
   - `tensor_decomp/`
     - `tucker/`
       - HoSVD: <span style="color:gray;">% Higher-order Singular Value Decomposition</span>
-        - [ ] Tested
-        - [ ] Fit score implemented
       - HooI: <span style="color:gray;">% Higher-order orthogonal Iteration</span>
-        - [ ] Tested
-        - [ ] Fit score implemented
       - Sparse HoSVD:
-        - [ ] Tested
-        - [ ] Fit score implemented
       - Sparse HooI:
-        - [ ] Tested
-        - [ ] Fit score implemented
     - `cp/`
       - CP-ALS: <span style="color:gray;">% Alternating Least Squares Algorithm</span>
         - [ ] Tested
@@ -104,6 +103,29 @@ Status Markers:
     - ...
   - `distributions/`
     - [ ] `multi_linear_normal.py`
+- `synthetic_data/`
+  - [x] `generate_low_tucker_rank.py`
+  - `generate_anomaly.py`
+  - `generate_sythetic_regression.py`
+  - [x] `qmult.py` <span style="color:gray;">% Generate orthogonal matrix from uniform, AKA Haar, distribution </span>
+  - 
+- `utils/`
+### Solvers
+  - `solvers/`
+    - [ ] `manifold/`
+      - [x] `line_searcher.py`
+      - [x] `gradient_descent.py`
+      - [ ] `radmm.py`
+      - [ ] `riemannian_ada.py`
+        - [ ] Tested
+    - [ ] `genlasso/`
+      - [ ] 
+    - [x] `proximal_gradient_base.py`
+      - [ ] Restructure it to not require inheritence from base class.
+      - [ ] Implement accelerated proximal gradient as well.
+    - [x] `admm_base_class.py`
+      - [ ] Restructure to not require inheritance from base class
+### Operators
 - `proximal_ops/`
   - [ ] `proj_l1_ball.py`
   - [ ] `prox_lp_lq.py`
@@ -117,16 +139,13 @@ Status Markers:
   - `prox_grouped_l21.py`
 - `multilinear_ops/`
   - [x] matricization
-    - `matricize()`
-    - `tensorize()`
-    - `unfold()`
-    - `fold()`
   - `matrix_products.py`
     - [ ] Khatri-Rao Product
     - [ ] 
   - `tensor_products.py`
     - `mode_n_product()`
     - `multi_mode_product()`
+    - [ ] Implement T-Product
   - `tucker.py`
     - [ ] TuckerTensor
       - [ ] Inner Product
@@ -143,10 +162,3 @@ Status Markers:
       - [ ] Sparse CP Tensor?
     - [ ] mttkrp <span style="color:gray;">% Matricized tensor times khatri-rao product </span>
     - [ ] expand_kruskal
-- `synthetic_data/`
-  - [x] `generate_low_tucker_rank.py`
-  - `generate_anomaly.py`
-  - `generate_sythetic_regression.py`
-  - [x] `qmult.py` <span style="color:gray;">% Generate orthogonal matrix from uniform, AKA Haar, distribution </span>
-  - `
-- `utils/`

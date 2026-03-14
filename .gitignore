@@ -5,12 +5,21 @@ build/
 dist/
 wheels/
 *.egg-info
+*.ipynb_checkpoints/
 
+*tmp/
+*.log
+*.cache/
+.
 # Folders
 development/
 labrat/
 data/
 applications/
+.vscode/
 
 # Virtual environments
 .venv
+
+#
+.env

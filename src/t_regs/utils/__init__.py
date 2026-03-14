@@ -1,2 +1,7 @@
+"""Module of utility classes and functions.
 
-from .estimate_spectral_norm import  est_spectral_norm
+Author: Mert Indibi
+"""
+__all__ = [
+
+]

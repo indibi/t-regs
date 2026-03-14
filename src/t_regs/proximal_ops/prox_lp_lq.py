@@ -1,3 +1,4 @@
+from typing import Sequence
 import numpy as np
 import torch
 # import jax
@@ -7,31 +8,47 @@ from ..multilinear_ops import matricize, tensorize
 
 
 def prox_l21(x, alpha, axis=0):
-    """Applies the proximal operator of the l21 norm with threshold parameter alpha.
+    r"""Proximal operator of the :math:`\ell_2-\ell_1` norm with threshold `alpha`.
 
-    Args:
-        x (torch.Tensor): input array
-        alpha (float): proximal operator threshold
-        axis (int): axis along which to compute the l2 norm
+    Parameters
+    ----------
+        x: torch.Tensor
+            input array
+        alpha: float
+            proximal operator threshold
+        axis: int | tuple = 0
+            When `x` is a multi-dimensonal array `axis` designates the
+            dimension(s) along which to compute the l2 norm.
 
-    Returns:
+    Returns
+    -------
         Tensor: thresholded vectors
     """
     if isinstance(x, np.ndarray):
         norm_l2 = np.linalg.norm(x, axis=axis, keepdims=True)
         scaling_factor = np.where(norm_l2>alpha, 1-alpha/norm_l2, 0)
     elif isinstance(x, torch.Tensor):
-        norm_l2 = torch.linalg.vector_norm(x, dim=axis, keepdim=True)
+        norm_l2 = torch.linalg.vector_norm(x, dim=axis, keepdim=True)   # pylint: disable=not-callable
         scaling_factor = torch.where(norm_l2>alpha, 1-alpha/norm_l2, 0)
+    else:
+        raise TypeError("`x` must either be a numpy or torch array")
     return x*scaling_factor
 
 
-def prox_grouped_l21(x, alpha, groups, weights=None, modes=[1], return_group_norms=False):
-    """Apply the proximal operator for the (non-overlapping) grouped l21 norm.
+def prox_grouped_l21(x: torch.Tensor,
+                     alpha: float | np.ndarray | torch.Tensor,
+                     groups: torch.Tensor | np.ndarray,
+                     weights: torch.Tensor | np.ndarray | None = None,
+                     modes: Sequence[int]=None,
+                     return_group_norms: bool =False):
+    r"""Apply the proximal operator for the (non-overlapping) grouped l21 norm.
 
     The proximal operator for the grouped l21 norm is defined as:
-        prox_{alpha*||.||_{2,1}}(x) = argmin_{z} 0.5*||z-x||_F^2 + alpha*||z||_{2,1}
-        where ||.||_{2,1} is the grouped l21 norm defined as:
+    .. math::
+        prox_{\alpha*\Omega(.)_{2,1}}(x)=
+            argmin_{z} 0.5*\|z-x\|_F^2 + \alpha*\Omega(z)
+    
+    where ||.||_{2,1} is the grouped l21 norm defined as:
             ||z||_{2,1} = sum_{i=1}^{n_groups} w_i * sqrt(sum_{j=1}^{n_features} z_{ij}^2)
     Parameters:
     -----------
@@ -48,8 +65,11 @@ def prox_grouped_l21(x, alpha, groups, weights=None, modes=[1], return_group_nor
     --------
         
     """
-    if isinstance(modes, int):
+    if modes is None:
+        modes = [1]
+    elif isinstance(modes, int):
         modes = [modes]
+    weighted_group_norms = None
     og_shape = x.shape
     x = matricize(x, modes)
     if isinstance(x, np.ndarray):
@@ -69,7 +89,11 @@ def prox_grouped_l21(x, alpha, groups, weights=None, modes=[1], return_group_nor
         x2 = x.pow(2)
         group_norms = torch.sqrt(groups @ x2) # size: (n_groups, batch_size)
         threshold = alpha * weights
-        scaling_factors = torch.where(group_norms>threshold, 1-threshold/group_norms, 0) # size: (n_groups, batch_size)
+        scaling_factors = torch.where(
+            group_norms>threshold,
+            1-threshold/group_norms,
+            0
+            ) # size: (n_groups, batch_size)
         # Torch doesn't have transpose for csr matrices. We use the transpose of the dense matrices.
         scaling_factors = (scaling_factors.T @ groups).T  # size: (n_features, batch_size)
         x = x * scaling_factors
