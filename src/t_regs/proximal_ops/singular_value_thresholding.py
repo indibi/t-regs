@@ -4,7 +4,17 @@ import numpy as np
 import torch
 from ..multilinear_ops import unfold, fold
 
+def t_soft_svt(X, tau):
+    pass
+    # TODO: Implement soft t-singular value thresholding
 
+def t_sv_truncation(X, tau):
+    pass
+    # TODO: Implement soft t-singular value truncation
+
+def t_hard_svt(X, tau):
+    pass
+    # TODO: Implement hard t-singular value thresholding
 
 def soft_svt(T, tau): # pylint: disable=invalid-name
     """Soft threshold the singular values of matrix T with threshold tau.
@@ -57,3 +67,4 @@ def mode_n_soft_svt(T, tau, n):
     sz = T.shape
     X, nuc_norm = soft_svt(unfold(T, n), tau)
     return fold(X, sz, n), nuc_norm
+

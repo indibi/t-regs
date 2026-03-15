@@ -21,8 +21,11 @@ def mode_n_product(X, A, mode: int, transpose: bool = False):
     """
     if mode < 1 or mode > X.ndim:
         raise ValueError(f"Invalid mode {mode} for tensor with {X.ndim} dimensions.")
-    if A.shape[1] != X.shape[mode-1]:
+    if A.shape[1] != X.shape[mode-1] and not transpose:
         raise ValueError(f"Matrix A's number of columns {A.shape[1]} must match "
+                         f"tensor X's size in mode {mode}, which is {X.shape[mode-1]}.")
+    elif A.shape[0] != X.shape[mode-1] and transpose:
+        raise ValueError(f"Matrix A's number of rows {A.shape[0]} must match "
                          f"tensor X's size in mode {mode}, which is {X.shape[mode-1]}.")
     og_dims = X.shape
     result_dim = list(og_dims)
@@ -57,5 +60,8 @@ def multi_mode_product(X,
     for n, mode in enumerate(modes):
         if mode in skip_modes:
             continue
-        X = mode_n_product(X, As[n], mode, transpose=False)
+        X = mode_n_product(X, As[n], mode, transpose=transpose)
     return X
+
+def t_product(A, B):
+    pass

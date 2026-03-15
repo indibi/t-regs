@@ -1,3 +1,5 @@
+from typing import Sequence
+
 import numpy as np
 
 from ..multilinear_ops import multi_mode_product
@@ -22,7 +24,7 @@ def generate_low_rank_data(dim, ranks, seed=None, return_factors=False):
     Returns
     -------
         np.ndarray
-            Tensor of order `len(dim)`.
+            Low rank tensor of specified dimensions and ranks.
     '''
     rng = np.random.default_rng(seed)
     n = len(dim)
@@ -74,7 +76,8 @@ def generate_sparse_low_tucker_rank_tensor(dims: tuple[int],
     rng = np.random.default_rng(seed)
     N = len(dims)
     Us = []
-    C = rng.uniform(0,1, size=ranks)
+    # C = rng.uniform(0,1, size=ranks)
+    C = rng.normal(0, np.prod(ranks), size=ranks)
     
     for dim, rank, s in zip(dims, ranks, cardinalities):
         U = np.zeros((dim, rank))
@@ -89,6 +92,52 @@ def generate_sparse_low_tucker_rank_tensor(dims: tuple[int],
         Us.append(U)
     B = multi_mode_product(C, Us, modes=list(range(1, N+1)))
     return B
+
+def generate_smooth_low_tucker_rank_tensor(
+                                    Ls: Sequence[np.array],
+                                    ranks: tuple[int],
+                                    eigvec_start: tuple[int]=0,
+                                    seed: int = 0) -> np.ndarray:
+    """Generate low-tucker rank tensor with sparse factors.
+
+    Based on the experiment synthetic data generation procedure in [1].
+    Parameters
+    ----------
+        Ls : tuple[int]
+            Graph laplacian matrices
+        ranks : tuple[int]
+            Ranks of the resulting tensor.
+        cardinalities : tuple[int]
+            Cardinality (number of non-zeros) of the factor matrices columns.
+        amp_factor_entries : float
+            The amplitude of the non-zero entries in  the non-zero entries of
+            the factor matrices. Defaults to 0.5.
+        amp_core_entries : float
+            The standard deviation of the core tensor entries drawn from the
+            gaussian normal distribution. Defaults to 1.0.
+        seed : int
+            Random seed for reproducibility.
+    
+    Returns
+    -------
+        np.ndarray
+            Generated low-tucker rank tensor with sparse factors.
+    """
+    rng = np.random.default_rng(seed)
+    N = len(Ls)
+    Us = []
+    # C = rng.uniform(0,1, size=ranks)
+    C = rng.normal(0, np.prod(ranks), size=ranks)
+
+    for L, rank, s in zip(Ls, ranks, eigvec_start):
+        result = np.linalg.eigh(L)
+        U = result.eigenvectors
+        ldas = result.eigenvalues
+        Us.append(U[:, s:s+rank])
+
+    B = multi_mode_product(C, Us, modes=list(range(1, N+1)))
+    return B, Us, C, ldas
+
 
 # def generate_sparse_low_tucker_rank_tensor(dims: tuple[int],
 #                                     ranks: tuple[int],

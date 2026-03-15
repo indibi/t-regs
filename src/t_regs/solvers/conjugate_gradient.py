@@ -1,12 +1,18 @@
 """Conjugate Gradient Algorithm
 
-Implementation of the Conjugate Gradient algorithm for solving systems of linear equations.
-Useful for large, sparse systems where direct methods are impractical.
+Implementation of the Conjugate Gradient algorithm for solving systems of
+linear equations. Useful for large, sparse systems where direct methods are
+impractical.
 
 References:
-    'An Introduction to the Conjugate Gradient Method Without the Agonizing Pain' (http://www.cs.cmu.edu/%7Equake-papers/painless-conjugate-gradient.pdf) by Jonathan Richard Shewchuk.
-    'Iterative methods for sparse linear systems' (http://www-users.cs.umn.edu/%7Esaad/books.html) by Yousef Saad
+-----------
+..  [1] "An Introduction to the Conjugate Gradient Method Without the Agonizing
+    Pain" (http://www.cs.cmu.edu/%7Equake-papers/painless-conjugate-gradient.pdf)
+    by Jonathan Richard Shewchuk.
+    [2] "Iterative methods for sparse linear systems"
+    (http://www-users.cs.umn.edu/%7Esaad/books.html) by Yousef Saad
 """
+# TODO: Fix reference format
 
 from collections import defaultdict
 import numpy as np
@@ -14,8 +20,7 @@ import torch
 
 
 def conjugate_gradient(A, b, x0=None, tol=1e-10, max_iter=None):
-    """
-    Solve the system of linear equations Ax = b using the Conjugate Gradient method.
+    """Solve the system of linear equations Ax = b with Conjugate Gradient method.
 
     Parameters:
         A (callable or torch.Tensor): A function that computes the matrix-vector product Ax or a symmetric positive-definite matrix.

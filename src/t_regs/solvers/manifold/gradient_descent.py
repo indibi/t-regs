@@ -28,7 +28,7 @@ class RiemmannianGradientDescent:
     r"""Riemmannian Gradient Descent Solver
 
     Solves optimization problems of the form
-    ..:math
+    .. math::
         \min_{x \in \mathcal{M}} f(x)
     
     where :math:`f: \mathcal{M} \to \mathbb{R}` is a differentiable function

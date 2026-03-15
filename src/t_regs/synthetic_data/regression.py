@@ -47,7 +47,7 @@ def generate_tensor_regression_predictors(dims : tuple[int],
 
 def generate_tensor_regression_response(X: np.ndarray,
                                         B: np.ndarray,
-                                        noise_type: str = 'gaussian',
+                                        noise_type: str = None,
                                         regression_type: str = 'linear',
                                         seed: int = 0,
                                         kernel: str = 'euclidean',
