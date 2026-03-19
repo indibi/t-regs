@@ -52,6 +52,12 @@ dev = [
     "tqdm>=4.67.1",
     "wandb>=0.22.3",
 ]
+neuro-img = [
+    "nibabel>=5.4.2",
+    "nilearn>=0.13.1",
+    "nltools>=0.4.7",
+    "pybids>=0.22.0",
+]
 
 
 [tool.uv.sources]
