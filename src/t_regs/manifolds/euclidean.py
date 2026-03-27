@@ -16,10 +16,11 @@ class Euclidean(Manifold):
     def __init__(self,
                  dims: Sequence[int],
                  **kwargs):
-        self._dims = dims
+        self._dims = tuple(dims)
         dimension = math.prod(dims)
-        name = f"Euclidean Manifold R^({tuple(dims)})"
-        super().__init__(name, dimension, **kwargs)
+        name = f"Euclidean Manifold R^({self._dims})"
+        size = torch.Size(self._dims)
+        super().__init__(name, dimension, size, **kwargs)
 
     def inner_product(self,
                     point: torch.Tensor,
@@ -52,7 +53,7 @@ class Euclidean(Manifold):
 
 
     def project(self,
-                X: torch.Tensor,
+                X: torch.Tensor, # py-lint: disable=unused-argument
                 Y: torch.Tensor) -> torch.Tensor:
         r"""Project `vector` :math:`Y` onto the tangent space on `point` :math:`X`
         
@@ -61,4 +62,3 @@ class Euclidean(Manifold):
         :math:`T_X \mathcal{M}` of the manifold at :math:`X`.
         """
         return Y
-

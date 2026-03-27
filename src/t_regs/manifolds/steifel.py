@@ -27,6 +27,7 @@ class Steifel(Manifold):
     def __init__(self,
                  n: int,
                  p: int,
+                 # k: int = 1, TODO: Add support for product of k steifel manifolds.
                  retraction: str = 'qr',
                  **kwargs):
         self._n = n
@@ -43,7 +44,8 @@ class Steifel(Manifold):
         self._retraction = getattr(self, f"_retract_{retraction}")
         dimension = n*p - p*(p+1) /2
         name = f"Steifel Manifold St({n}, {p})"
-        super().__init__(name, dimension, **kwargs)
+        size = torch.Size((n,p))
+        super().__init__(name, dimension, size, **kwargs)
 
     def inner_product(self,
                     point: torch.Tensor,
