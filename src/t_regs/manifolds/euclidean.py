@@ -29,7 +29,7 @@ class Euclidean(Manifold):
                     project = True) -> float:
         return torch.tensordot(v1, v2)
 
-    def norm(self, point, v, project = True):
+    def norm(self, point, v, project = True): # pylint:disable=arguments-renamed
         return (v**2).sum()
 
     def random_point(self, generator=None):
@@ -53,8 +53,8 @@ class Euclidean(Manifold):
 
 
     def project(self,
-                X: torch.Tensor, # py-lint: disable=unused-argument
-                Y: torch.Tensor) -> torch.Tensor:
+                X: torch.Tensor, # pylint: disable=unused-argument,arguments-renamed
+                Y: torch.Tensor) -> torch.Tensor: # pylint: disable=arguments-renamed
         r"""Project `vector` :math:`Y` onto the tangent space on `point` :math:`X`
         
         Performs the projection operation of the vector :math:`Y`, i.e. 

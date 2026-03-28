@@ -50,7 +50,7 @@ class ManifoldParameter(torch.nn.Parameter):
         self._manifold = manifold
         self._rgrad = None
         if manifold is not None:
-            assert manifold.size() == self.size()
+            assert manifold.size == self.size()
             self.register_rgrad_hook()
 
     def register_rgrad_hook(self):

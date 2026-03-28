@@ -123,6 +123,9 @@ Create model demonstrations for,
       - [ ] Implement product manifold
       - [ ] Test it on product manifold spanning matrices.
       - [ ] Compare convergence properties.
+    - [x] `parameter.py` Wrapper for PyTorch parameters that extends the autograd functionality to riemannian gradients.
+      - [ ] Tested
+
 ### utils
 - [ ] Implement a torch data loader for tensor regression tasks.
 ### Operators
@@ -138,6 +141,15 @@ Create model demonstrations for,
     - [ ] Implementing statistical fit scores
   - `prox_grouped_l21.py`
 - `multilinear_ops/`
+  - [ ] torch.nn.Module implementations for
+    - [ ] Canonical Polyadic
+    - [ ] Tucker
+      - [ ] Test operation
+      - [ ] Test autograd
+      - [ ] Test auto_rgrad
+      - [ ] Benchmark speed
+      - [ ] Add regularization
+    - [ ] Low Separable Rank
   - [x] matricization
   - `matrix_products.py`
     - [ ] Khatri-Rao Product
