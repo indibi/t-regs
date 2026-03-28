@@ -29,15 +29,21 @@ class Problem:
     
     Parameters
     ----------
-        manifold:
-            The manifold on which the problem is defined over.
-        objective: Callable[[torch.Tensor], torch.Tensor]
-            Torch autograd enabled objective function. Meaning, it returns a
-            torch.Tensor on which `.backward()` can be called.
-        init_point: Optional[torch.Tensor] = None
-            Initial point for the parameter.
-        lipschitz_const: float | None = None,
-            Lipschitz constant for a function.
+    manifold:
+        The manifold on which the problem is defined over.
+    objective: Callable[[torch.Tensor], torch.Tensor]
+        Torch autograd enabled objective function. Meaning, it returns a
+        torch.Tensor on which `.backward()` can be called.
+    lipschitz_const: float | None = None,
+        Lipschitz constant for a function.
+    
+    Examples
+    --------
+    >> manifold = Euclidean(2)
+    >> x = torch.tensor([0,1])
+    >> def objective(x):
+    >>     return x.pow(2).sum()
+    >> problem = Problem(manifold, objective)
     """
     # TODO: Currently, the cost function holds all of the data or the dataloader,
     # and handling the devices and the datatypes may be messy. Need to fix it.
@@ -68,10 +74,11 @@ class Problem:
             point.grad = None
             obj = self._objective(point)
             obj.backward()
-            return obj
+            point.requires_grad = False
+            return float(obj.detach())
         else:
             with torch.no_grad():
-                return self._objective(point)
+                return float(self._objective(point).detach())
 
     def grad(self,
              point: torch.Tensor | ManifoldParameter,

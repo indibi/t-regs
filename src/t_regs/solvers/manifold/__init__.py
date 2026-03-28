@@ -1,9 +1,9 @@
 __all__ = [
     'RiemmannianGradientDescent',
-    # 'Problem',
+    'Problem',
     # 'ManifoldParameter',
 ]
 
 from .gradient_descent import RiemmannianGradientDescent
-# from .problem import Problem
-# from .parameter import ManifoldParameter
+from .problem import Problem
+from .parameter import ManifoldParameter

@@ -11,11 +11,13 @@ References
     Machine Learning Research, 17(137), 1-5.
 """
 
-from typing import Callable
+# from typing import Callable
+from functools import partial
 
 import torch
 
-from ...manifolds import Manifold
+from .problem import Problem
+# from ...manifolds import Manifold
 
 class LineSearcher:
     r"""Back-tracking line search algorithm for Riemannian Gradient Descent
@@ -130,8 +132,7 @@ class LineSearcher:
 
 
     def search(self,
-               func_f: Callable[[torch.Tensor], float],
-               manifold: Manifold,
+               problem: Problem,
                x: torch.Tensor,
                eta: torch.Tensor,
                f_x: float,
@@ -140,10 +141,9 @@ class LineSearcher:
         
         Parameters
         ----------
-        func_f:
-            Objective function to minimize
-        manifold:
-            Manifold that the objective function is being minimized over
+        problem:
+            Problem object representing the manifold constrained optimization
+            problem.
         x:
             Point on the manifold defining the tangent space
         eta:
@@ -161,4 +161,6 @@ class LineSearcher:
         new_x:
             Next point in the iteration.
         """
+        manifold = problem.manifold
+        func_f = partial(problem.objective, backward_pass=False)
         return self._search(func_f, manifold, x, eta, f_x, df_x_eta)

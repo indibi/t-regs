@@ -13,6 +13,7 @@ from ...multilinear_ops.matricization import matricize
 from ...manifolds import Steifel, Euclidean, GeneralizedSteifel
 from ...solvers.manifold import RiemmannianGradientDescent as RGD
 from ...solvers.manifold.line_searcher import LineSearcher
+from ...solvers.manifold.problem import Problem
 from ...utils import printer
 
 
@@ -228,11 +229,11 @@ class GenTuckerBCD(RegressionBaseClass):
                        ("Train score", ".4f")]
             if X_val is not None and y_val is not None:
                 columns += [("Val score", ".4f")]
-            columns += [("Cost", "+.8e"),
-                        ("Gradient norm", ".8e"),
+            columns += [("Cost", ".5e"),
+                        ("Gradient norm", ".5e"),
                         ] + [
-                    (f"U_{mode} grad norm", ".6e") for mode in range(1, self.M+1)
-                ] + [("C grad norm", ".6e")]
+                    (f"U_{mode} grad norm", ".5e") for mode in range(1, self.M+1)
+                ] + [("C grad norm", ".5e")]
             column_printer = printer.ColumnPrinter(columns=columns)
         else:
             column_printer = printer.VoidPrinter()
@@ -246,22 +247,12 @@ class GenTuckerBCD(RegressionBaseClass):
         while True:
             it += 1
             solver = self.subproblem_solvers['C']
-            func_f, grad_f, L = self._initialize_C_subproblem_for_RGD(
-                X,
-                y,
-                return_lipschitz=True
-                )
-            solver.init_step_size = 1.0/L
-            # solver.step_size = 1.0 / L
-            # func_f, grad_f = self._initialize_C_subproblem_for_RGD(
-            #     X,
-            #     y,
-            #     return_lipschitz=False
-            #     )
-            rgd_result = solver.solve(func_f,
-                                 grad_f,
-                                 manifold=self.manifold_C,
-                                 x0=self.C)
+            problem = self._initialize_C_subproblem_for_RGD(X, y,
+                                                        return_lipschitz=True)
+            if problem.lipschitz_constant is not None:
+                solver.step_size = 1.0 / problem.lipschitz_constant
+
+            rgd_result = solver.solve(problem, x0=self.C)
             self.solver_results['C'] = rgd_result
             self.C = rgd_result.point
 
@@ -269,25 +260,12 @@ class GenTuckerBCD(RegressionBaseClass):
                 for mode in modes:
                     U = self.Us[mode-1]
                     solver = self.subproblem_solvers[f'U_{mode}']
-                    func_f, grad_f, L = self._initialize_U_subproblem_for_RGD(
-                        X,
-                        y,
-                        mode,
-                        return_lipschitz=True
-                        )
-                    solver.init_step_size = 1.0/L
-                    # solver.step_size = 1.0 / L
-                    # func_f, grad_f = self._initialize_U_subproblem_for_RGD(
-                    #     X,
-                    #     y,
-                    #     mode,
-                    #     return_lipschitz=False
-                    #     )
+                    problem = self._initialize_U_subproblem_for_RGD(X, y, mode,
+                                                        return_lipschitz=True)
+                    if problem.lipschitz_constant is not None:
+                        solver.step_size = 1.0 / problem.lipschitz_constant
 
-                    rgd_result = solver.solve(func_f,
-                                        grad_f,
-                                        manifold=self.manifolds[mode-1],
-                                        x0=U)
+                    rgd_result = solver.solve(problem, x0=U)
                     self.solver_results[f'U_{mode}'] = rgd_result
                     self.Us[mode-1] = rgd_result.point
 
@@ -305,28 +283,26 @@ class GenTuckerBCD(RegressionBaseClass):
                     # self.solver_results['C'] = rgd_result
                     # self.C = rgd_result.point
 
-
             # Calculate values for logging
-            train_pred = self.predict(X)
-            scores = {"train_score": float(self.score(train_pred, y))}
-            if X_val is not None and y_val is not None:
-                val_pred = self.predict(X_val)
-                val_score = float(self.score(val_pred, y_val))
-                scores["val_score"] = val_score
-            # Check convergence
+            with torch.no_grad():
+                train_pred = self.predict(X)
+                scores = {"train_score": float(self.score(train_pred, y))}
+                if X_val is not None and y_val is not None:
+                    val_pred = self.predict(X_val)
+                    val_score = float(self.score(val_pred, y_val))
+                    scores["val_score"] = val_score
 
-            func_f, grad_f = self._initialize_C_subproblem_for_RGD(
-                X,
-                y,
-                return_lipschitz=False
-                )
-            obj_val = float(func_f(self.C))
-            grad_C_norm = self.manifold_C.norm(self.C, grad_f(self.C))
+            # Check convergence
+            problem = self._initialize_C_subproblem_for_RGD(X, y,
+                                                        return_lipschitz=False)
+            obj_val = problem.objective(self.C, backward_pass=True)
+            grad_C = problem.grad(self.C, repeat_forward=False)
+            grad_C_norm = problem.manifold.norm(self.C, grad_C)
             grad_norms = {"grad_C": float(grad_C_norm)}
             for mode in modes:
                 U = self.Us[mode-1]
-                func_f, grad_f = self._initialize_U_subproblem_for_RGD(X, y, mode)
-                grad_U = grad_f(U)
+                problem = self._initialize_U_subproblem_for_RGD(X, y, mode)
+                grad_U = problem.grad(U, repeat_forward=True)
                 grad_U_norm = self.manifolds[mode-1].norm(U, grad_U)
                 grad_norms[f'grad_U_{mode}'] = float(grad_U_norm)
             max_grad_norm = max(grad_norms.values())
@@ -338,7 +314,8 @@ class GenTuckerBCD(RegressionBaseClass):
             row += [grad_norms[f'grad_U_{mode}'] for mode in range(1, self.M+1)]
             row += [grad_norms['grad_C']]
             column_printer.print_row(row)
-            self._add_log_entry(it,
+            self._add_log_entry(start_time,
+                                it,
                                 obj_val,
                                 gradient_norm=max_grad_norm,
                                 **scores,
@@ -375,7 +352,7 @@ class GenTuckerBCD(RegressionBaseClass):
                                         min_gradient_norm = 1e-8,
                                         max_time = self.max_time/((self.M+1)*10),
                                         # verbosity = self.verbosity-1,
-                                        # log_verbosity = self.log_verbosity-1,
+                                        log_verbosity = max(self.log_verbosity,1),
                                         )
                 self.subproblem_solvers['C'] = RGD(
                                         line_searcher = LineSearcher(
@@ -385,7 +362,7 @@ class GenTuckerBCD(RegressionBaseClass):
                                         min_gradient_norm = 1e-8,
                                         max_time = self.max_time/((self.M+1)*10),
                                         # verbosity = self.verbosity-1,
-                                        # log_verbosity = self.log_verbosity-1,
+                                        log_verbosity = max(self.log_verbosity,1),
                                         )
         elif ma == 'BCD_RADMM':
             raise NotImplementedError("BCD_RADMM is not implemented yet.")
@@ -404,18 +381,22 @@ class GenTuckerBCD(RegressionBaseClass):
         grad_f:
         """
         # TODO: Deal with multi-task regression
-        X_prime = mmp(X,
-                    self.Us,
-                    modes = self._X_modes,
-                    skip_modes = [mode+1],
-                    transpose = True)
-        C_dot_modes = [i for i in range(self.M) if i != mode-1]
-        X_dot_modes = [i for i in range(1, self.M+1) if i != mode]
-        CX = torch.tensordot(X_prime, self.C, dims=[X_dot_modes, C_dot_modes])
+        regression_type = self.regression_type
         theta = self.thetas[mode-1]
         L = self.Ls[mode-1]
-        regression_type = self.regression_type
-        def func_f(U):
+        lipschitz_const = None
+        with torch.no_grad():
+            X_prime = mmp(X,
+                        self.Us,
+                        modes = self._X_modes,
+                        skip_modes = [mode+1],
+                        transpose = True)
+            C_dot_modes = [i for i in range(self.M) if i != mode-1]
+            X_dot_modes = [i for i in range(1, self.M+1) if i != mode]
+            CX = torch.tensordot(X_prime,
+                                 self.C,
+                                 dims=[X_dot_modes, C_dot_modes])
+        def objective(U):
             etas = torch.tensordot(CX, U, dims=[[1,2], [0,1]])
             if regression_type == 'logistic':
                 loss = F.binary_cross_entropy_with_logits(etas,
@@ -434,47 +415,39 @@ class GenTuckerBCD(RegressionBaseClass):
             if ((theta is not None ) or (theta != 0)):
                 drichlet_energy = 0.5*theta*( U*(L@U) ).sum()
                 loss += drichlet_energy
-            return float(loss)
+            return loss
 
-        def grad_f(U):
-            etas = torch.tensordot(CX, U, dims=[[1,2], [0,1]])
-            if regression_type == 'logistic':
-                probs = F.sigmoid(etas)
-                residuals = y - probs
-            elif regression_type == 'linear':
-                residuals = y - etas
-            # grad = - residuals.sum(dim=0)/residuals.shape[0]
-            grad = -torch.sum((residuals.reshape((-1,1,1)) * CX), dim=0
-                        )/residuals.shape[0]
-            
-            if ((theta is not None ) or (theta != 0)):
-                grad = grad + theta*(L @ U)
-            return grad
-        
-        if return_lipschitz:
-            N = y.shape[0]
-            x = matricize(CX, [1])
-            batch_sum_out_prod = torch.einsum('bi, bj->ij', x, x)/N
-            lipschitz_const = torch.linalg.norm(batch_sum_out_prod, 2)
-            if regression_type == 'linear':
-                lipschitz_const += theta*float((L**2).sum())
-            elif regression_type == 'logistic':
-                lipschitz_const = 0.25* lipschitz_const + theta*float((L**2).sum())
-            return func_f, grad_f, lipschitz_const
-        return func_f, grad_f
+        with torch.no_grad():
+            if return_lipschitz:
+                N = y.shape[0]
+                x = matricize(CX, [1])
+                batch_sum_out_prod = torch.einsum('bi, bj->ij', x, x)/N
+                lipschitz_const = torch.linalg.norm(batch_sum_out_prod, 2)
+                if regression_type == 'linear':
+                    lipschitz_const += theta*float((L**2).sum())
+                elif regression_type == 'logistic':
+                    lipschitz_const = (0.25*lipschitz_const
+                                       + theta*float((L**2).sum())
+                                       )
+        problem = Problem(self.manifolds[mode-1],
+                          objective,
+                          lipschitz_const=lipschitz_const
+                          )
+        return problem
 
     def _initialize_C_subproblem_for_RGD(self, X, y, return_lipschitz=False):
-        X_prime = mmp(X,
-                    self.Us,
-                    modes = self._X_modes,
-                    skip_modes = [],
-                    transpose = True)
+        lipschitz_const = None
+        with torch.no_grad():
+            X_prime = mmp(X,
+                        self.Us,
+                        modes = self._X_modes,
+                        skip_modes = [],
+                        transpose = True)
         C_dot_modes = [i for i in range(self.M)]
         X_dot_modes = [i for i in range(1, self.M+1)]
-        rest_dim = tuple([1 for _ in range(self.M)])
         tau = self.tau
         regression_type = self.regression_type
-        def func_f(C):
+        def objective(C):
             etas = torch.tensordot(X_prime, C, dims=[X_dot_modes, C_dot_modes])
             if regression_type == 'logistic':
                 loss = F.binary_cross_entropy_with_logits(etas,
@@ -483,28 +456,9 @@ class GenTuckerBCD(RegressionBaseClass):
             elif regression_type == 'linear':
                 residuals = y - etas
                 loss = (residuals**2).sum()/residuals.numel()
-
             if (tau !=0):
                 loss += tau*0.5*(C**2).sum()
-            return float(loss)
-
-        def grad_f(C):
-            residuals = None
-            etas = torch.tensordot(X_prime,
-                                   C,
-                                   dims=[X_dot_modes, C_dot_modes])
-            if regression_type == 'logistic':
-                probs = F.sigmoid(etas)
-                residuals = y - probs
-            elif regression_type == 'linear':
-                residuals = y - etas
-            # grad = - residuals.sum(dim=0)/residuals.shape[0]
-            residuals = residuals.reshape((-1,*rest_dim))
-            grad = -(residuals*X_prime).sum(dim=0)/residuals.shape[0]
-
-            if tau != 0:
-                grad = grad + tau*C
-            return grad
+            return loss
 
         if return_lipschitz:
             N = y.shape[0]
@@ -515,8 +469,10 @@ class GenTuckerBCD(RegressionBaseClass):
                 lipschitz_const += tau
             elif regression_type == 'logistic':
                 lipschitz_const = 0.25* lipschitz_const + tau
-            return func_f, grad_f, lipschitz_const
-        return func_f, grad_f
+        problem = Problem(self.manifold_C,
+                          objective,
+                          lipschitz_const=lipschitz_const)
+        return problem
 
     def _initialize_log(self, seed=None):
         self.hyper_parameters = {
@@ -544,12 +500,12 @@ class GenTuckerBCD(RegressionBaseClass):
             'iterations': defaultdict(list)
         }
 
-    def _add_log_entry(self, iteration, objective, **kwargs):
+    def _add_log_entry(self, start_time, iteration, objective, **kwargs):
         if self.log_verbosity <=0:
             return
         if (self.logging_period !=0) and (iteration % self.logging_period ==0):
             self.log['iterations']['iteration'].append(iteration)
-            self.log['iterations']['time'].append(perf_counter())
+            self.log['iterations']['time'].append(perf_counter() - start_time)
             self.log['iterations']['objective'].append(objective)
             for key, value in kwargs.items():
                 self.log['iterations'][key].append(value)

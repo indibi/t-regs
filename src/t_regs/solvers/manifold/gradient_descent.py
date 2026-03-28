@@ -1,12 +1,15 @@
+"""Module for Riemannian Gradient Descent."""
+
 import collections
 from time import perf_counter
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Callable
+from typing import Any, Dict, Optional
 
 import torch
 import numpy as np
 
 from ...manifolds import Manifold
+from .problem import Problem
 from .line_searcher import LineSearcher
 from ...utils import printer
 
@@ -62,7 +65,6 @@ class RiemmannianGradientDescent:
             Controls how often the results are reported as algorithm iterates.
         logging_period : int = 1
             Controls how often the results are logged.
-        
     """
 
     def __init__(self,
@@ -106,9 +108,7 @@ class RiemmannianGradientDescent:
 
 
     def solve(self,
-              func_f: Callable[[torch.Tensor], float | torch.Tensor],
-              grad_f: Callable[[torch.Tensor], torch.Tensor],
-              manifold: Manifold,
+              problem: Problem,
               x0: torch.Tensor | None = None,
               generator: torch.Generator = None
               ) -> GradientDescentResult:
@@ -116,12 +116,8 @@ class RiemmannianGradientDescent:
         
         Parameters
         ----------
-        func_f: 
-            Smooth objective function :math:`f` to be minimized
-        grad_f:
-            Function evaluating the euclidean gradient of :math:`f` at a point.
-        manifold:
-            The manifold to minimize :math:`f` over
+        problem:
+            Problem object representing the manifold constrained optimization.
         x0:
             Initial point to start the optimization
         generator:
@@ -132,7 +128,7 @@ class RiemmannianGradientDescent:
         -------
             result: GradientDescentResult
         """
-
+        manifold: Manifold = problem.manifold
         if x0 is None:
             x = manifold.random_point(generator=generator)
         else:
@@ -145,8 +141,8 @@ class RiemmannianGradientDescent:
             column_printer = printer.ColumnPrinter(
                 columns=[
                     ("Iteration", f"{iteration_format_length}d"),
-                    ("Cost", "+.16e"),
-                    ("Gradient norm", ".8e"),
+                    ("Cost", "+.5e"),
+                    ("Gradient norm", ".5e"),
                 ]
             )
         else:
@@ -168,32 +164,32 @@ class RiemmannianGradientDescent:
         start_time = perf_counter()
         func_evals = 1
         it = 0
-        f_x = func_f(x)
-        nabla_x = grad_f(x)
+        f_x = problem.objective(x, backward_pass=True)
+        nabla_x = problem.grad(x, repeat_forward=False)
         descend_dir = -manifold.project(x, nabla_x) # Descent direction
         grad_norm = manifold.norm(x, descend_dir, project=False)
 
         column_printer.print_row([it, f_x, grad_norm])
-        self._add_log_entry(it, x, f_x)
+        self._add_log_entry(start_time, it, x, f_x)
         while True:
             it += 1
             if self.step_size is None:
                 step_size, x, step_count = self.line_searcher.search(
-                    func_f, manifold, x, descend_dir, f_x, -(grad_norm**2)
+                    problem, x, descend_dir, f_x, -(grad_norm**2)
                 )
-                f_x = self.line_searcher.old_f_x
                 func_evals += step_count
             else:
                 step_size = self.step_size
                 x = manifold.retract(x, step_size*descend_dir)
-                f_x = func_f(x)
-                func_evals += 1
-            nabla_x = grad_f(x)
+
+            f_x = problem.objective(x, backward_pass=True)
+            nabla_x = problem.grad(x, repeat_forward=False)
+            func_evals += 1
             descend_dir = -manifold.project(x, nabla_x)
             grad_norm = manifold.norm(x, descend_dir, project=False)
 
             column_printer.print_row([it, f_x, grad_norm])
-            self._add_log_entry(it, x, f_x)
+            self._add_log_entry(start_time, it, x, f_x)
 
             stopping_criterion = self._check_stopping_criteria(start_time,
                                                                it,
@@ -271,12 +267,12 @@ class RiemmannianGradientDescent:
             'iterations': collections.defaultdict(list)
             }
 
-    def _add_log_entry(self, iteration, point, objective, **kwargs):
+    def _add_log_entry(self, start_time, iteration, point, objective, **kwargs):
         if self.log_verbosity <=0:
             return
         if (self.logging_period !=0) and (iteration % self.logging_period ==0):
             self.log['iterations']['iteration'].append(iteration)
-            self.log['iterations']['time'].append(perf_counter())
+            self.log['iterations']['time'].append(perf_counter()-start_time)
             self.log['iterations']['objective'].append(objective)
             for key, value in kwargs.items():
                 self.log['iterations'][key].append(value)
@@ -286,7 +282,7 @@ class RiemmannianGradientDescent:
 
 
     def __str__(self):
-        if self.line_searcher is None:
+        if self.step_size is not None:
             name = type(self).__name__ + " with fixed step size"
         else:
             name = type(self).__name__ + (
