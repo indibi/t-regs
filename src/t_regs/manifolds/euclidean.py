@@ -1,3 +1,5 @@
+"""Module for euclidean manifold."""
+
 from typing import Sequence
 import math
 
@@ -52,9 +54,9 @@ class Euclidean(Manifold):
         return point + vector
 
 
-    def project(self,
-                X: torch.Tensor, # pylint: disable=unused-argument,arguments-renamed
-                Y: torch.Tensor) -> torch.Tensor: # pylint: disable=arguments-renamed
+    def project(self,   # pylint: disable=arguments-renamed
+                X: torch.Tensor, # pylint: disable=unused-argument
+                Y: torch.Tensor) -> torch.Tensor:
         r"""Project `vector` :math:`Y` onto the tangent space on `point` :math:`X`
         
         Performs the projection operation of the vector :math:`Y`, i.e. 

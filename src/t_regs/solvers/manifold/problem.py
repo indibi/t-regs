@@ -13,6 +13,8 @@ References
 ..  [2] M. Meghawanshi, P. Jawanpuria, A. Kunchukuttan, H. Kasai, and B. 
     Mishra, McTorch, a manifold optimization library for deep learning.
 """
+# TODO: Figure out a way to structure lipschitz constants for gradients and
+# possibly implement estimators.
 
 from typing import Callable, Optional
 
@@ -34,6 +36,8 @@ class Problem:
             torch.Tensor on which `.backward()` can be called.
         init_point: Optional[torch.Tensor] = None
             Initial point for the parameter.
+        lipschitz_const: float | None = None,
+            Lipschitz constant for a function.
     """
     # TODO: Currently, the cost function holds all of the data or the dataloader,
     # and handling the devices and the datatypes may be messy. Need to fix it.
@@ -41,11 +45,13 @@ class Problem:
     def __init__(self,
         manifold: Manifold,
         objective: Callable[[torch.Tensor], torch.Tensor],
-        grad_f: Optional[Callable[[torch.Tensor], torch.Tensor]] =None,
+        grad_f: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
+        lipschitz_const: float | None = None,
         ):
         self._objective = objective
         self.manifold = manifold
         self._grad_f = grad_f
+        self._lipschitz_const = lipschitz_const
 
     def objective(self,
         point: torch.Tensor | ManifoldParameter,
@@ -66,7 +72,7 @@ class Problem:
         else:
             with torch.no_grad():
                 return self._objective(point)
-    
+
     def grad(self,
              point: torch.Tensor | ManifoldParameter,
              repeat_forward: bool = True,
@@ -89,3 +95,8 @@ class Problem:
         else:
             grad = self._grad_f(point)
         return grad
+
+    @property
+    def lipschitz_constant(self):
+        """The lipschitz constant for lipcshitz continuous gradients."""
+        return self._lipschitz_const

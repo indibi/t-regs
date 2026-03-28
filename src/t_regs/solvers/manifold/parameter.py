@@ -44,8 +44,8 @@ class ManifoldParameter(torch.nn.Parameter):
         return torch.nn.Parameter._make_subclass(cls, data, requires_grad)
 
     def __init__(self,
-                 data=None, # py-lint: disable=unused-argument
-                 requires_grad=True, # py-lint: disable=unused-argument
+                 data=None, # pylint: disable=unused-argument
+                 requires_grad=True, # pylint: disable=unused-argument
                  manifold=None):
         self._manifold = manifold
         self._rgrad = None
@@ -54,6 +54,7 @@ class ManifoldParameter(torch.nn.Parameter):
             self.register_rgrad_hook()
 
     def register_rgrad_hook(self):
+        """Register riemannian gradient hook"""
         weak_self = weakref.ref(self)
 
         def calculate_rgrad(grad):
