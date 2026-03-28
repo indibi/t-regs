@@ -1,11 +1,14 @@
+"""Sparse, Generalized Tucker Generalized Linear Model module."""
+
 from warnings import warn
-import torch
-import torch.nn.functional as F
-import numpy as np
 from collections import defaultdict
 from typing import Any, Optional, Sequence
 from time import perf_counter
 from pprint import pprint
+
+import torch
+import torch.nn.functional as F
+import numpy as np
 
 from ...models.regression.regression_base import RegressionBaseClass
 from ...multilinear_ops.tensor_products import multi_mode_product as mmp
@@ -18,7 +21,7 @@ from ...utils import printer
 
 
 class GenTuckerBCD(RegressionBaseClass):
-    r"""Sparse Tucker Regression with Riemmannian Block Coordinate Descent
+    r"""Sparse, Generalized Tucker Regression with Block Coordinate Descent
     
     Parameters
     ----------
@@ -456,7 +459,7 @@ class GenTuckerBCD(RegressionBaseClass):
             elif regression_type == 'linear':
                 residuals = y - etas
                 loss = (residuals**2).sum()/residuals.numel()
-            if (tau !=0):
+            if tau != 0:
                 loss += tau*0.5*(C**2).sum()
             return loss
 
