@@ -21,7 +21,7 @@ from typing import Callable, Optional
 import torch
 
 from ...manifolds import Manifold
-from .parameter import ManifoldParameter
+from ...manifolds import ManifoldParameter
 
 
 class Problem:

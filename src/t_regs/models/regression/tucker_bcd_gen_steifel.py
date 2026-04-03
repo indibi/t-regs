@@ -20,6 +20,7 @@ from ...solvers.manifold.problem import Problem
 from ...utils import printer
 
 
+
 class GenTuckerBCD(RegressionBaseClass):
     r"""Sparse, Generalized Tucker Regression with Block Coordinate Descent
     
@@ -47,6 +48,8 @@ class GenTuckerBCD(RegressionBaseClass):
     Ls:
         Laplacian matrices to promote smoothness of the factor matrices 
         :math:`U_m`
+    estimate_lipschitz: bool = False,
+        Estimate a lipschitz constant for each of the subproblems for RGD.
     """
     regression_types = ['linear', 'logistic']
     algorithm_options = ['BCD_RGD', 'BCD_RADMM', 'BCD_RADA_RGD', 'BCD_RADA_PGD']
@@ -70,6 +73,7 @@ class GenTuckerBCD(RegressionBaseClass):
                 logging_period: int = 1,
                 subproblem_solvers: dict[str, Any] = None,
                 generalized_steifel: bool = False,
+                estimate_lipschitz: bool = False,
                 **kwargs,
                 ):
         super().__init__(**kwargs)
@@ -120,7 +124,8 @@ class GenTuckerBCD(RegressionBaseClass):
                                                 dtype=self.dtype)
                            for i in range(self.M)]
         else:
-            self.manifolds = [Steifel(n, p, device=self.device, dtype=self.dtype)
+            self.manifolds = [Steifel(n, p, retraction='polar',
+                                      device=self.device, dtype=self.dtype)
                            for n,p in zip(feature_dims, ranks)]
         self.manifold_C = Euclidean(self.ranks)
         self.Us = None #[manifold.random_point() for manifold in self.manifolds]
@@ -135,6 +140,7 @@ class GenTuckerBCD(RegressionBaseClass):
         self.report_period = report_period
         self.logging_period = logging_period
         self.subproblem_solvers = subproblem_solvers
+        self.estimate_lipschitz = estimate_lipschitz
 
         self._initialize_solvers()
 
@@ -251,9 +257,19 @@ class GenTuckerBCD(RegressionBaseClass):
             it += 1
             solver = self.subproblem_solvers['C']
             problem = self._initialize_C_subproblem_for_RGD(X, y,
-                                                        return_lipschitz=True)
-            if problem.lipschitz_constant is not None:
-                solver.step_size = 1.0 / problem.lipschitz_constant
+                                return_lipschitz=self.estimate_lipschitz)
+            if (problem.lipschitz_constant is not None):
+                if it < 10:
+                    solver.step_size = problem.lipschitz_constant
+                elif it == 10:
+                    solver.step_size = None
+                    solver.line_searcher.init_step_size = (
+                        float(1.0 / problem.lipschitz_constant)
+                        )
+            # else:
+            #     solver.line_searcher.init_step_size = (
+            #         solver.line_searcher.init_step_size
+            #         )
 
             rgd_result = solver.solve(problem, x0=self.C)
             self.solver_results['C'] = rgd_result
@@ -264,10 +280,21 @@ class GenTuckerBCD(RegressionBaseClass):
                     U = self.Us[mode-1]
                     solver = self.subproblem_solvers[f'U_{mode}']
                     problem = self._initialize_U_subproblem_for_RGD(X, y, mode,
-                                                        return_lipschitz=True)
-                    if problem.lipschitz_constant is not None:
-                        solver.step_size = 1.0 / problem.lipschitz_constant
-
+                                    return_lipschitz=self.estimate_lipschitz)
+                    if (problem.lipschitz_constant is not None):
+                        if it < 10:
+                            solver.step_size = problem.lipschitz_constant
+                        elif it == 10:
+                            solver.step_size = None
+                            solver.line_searcher.init_step_size = (
+                                float(1.0 / problem.lipschitz_constant)
+                                )
+                    # else:
+                    #     # Here I'm resetting the initial step size of the search
+                    #     # after the RGD is completed.
+                    #     solver.line_searcher.init_step_size = (
+                    #         solver.line_searcher.init_step_size
+                    #     )
                     rgd_result = solver.solve(problem, x0=U)
                     self.solver_results[f'U_{mode}'] = rgd_result
                     self.Us[mode-1] = rgd_result.point
@@ -296,8 +323,7 @@ class GenTuckerBCD(RegressionBaseClass):
                     scores["val_score"] = val_score
 
             # Check convergence
-            problem = self._initialize_C_subproblem_for_RGD(X, y,
-                                                        return_lipschitz=False)
+            problem = self._initialize_C_subproblem_for_RGD(X, y)
             obj_val = problem.objective(self.C, backward_pass=True)
             grad_C = problem.grad(self.C, repeat_forward=False)
             grad_C_norm = problem.manifold.norm(self.C, grad_C)
@@ -415,7 +441,7 @@ class GenTuckerBCD(RegressionBaseClass):
                 ))
 
             # tr(U^T L U) = <U, L U>
-            if ((theta is not None ) or (theta != 0)):
+            if ((theta is not None) and (theta > 0)):
                 drichlet_energy = 0.5*theta*( U*(L@U) ).sum()
                 loss += drichlet_energy
             return loss

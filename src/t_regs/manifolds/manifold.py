@@ -1,5 +1,6 @@
 """Abstract Base Class for Manifold."""
 import abc
+from typing import Dict, Any
 
 import torch
 
@@ -105,3 +106,26 @@ class Manifold(abc.ABC):
                 point: torch.Tensor,
                 vector: torch.Tensor) -> torch.Tensor:
         """Project `vector` onto tangent space of the manifold at the `point`"""
+
+    def to(self, *args, **kwargs):
+        """Move the manifold to device if it is defined through a torch.Tensor"""
+        
+        dtargs = list(filter(lambda x: isinstance(x, torch.dtype),args))
+        if len(dtargs) == 0:
+            dtype = kwargs.get('dtype', None)
+        else:
+            dtype = dtargs[0]
+        devargs = list(filter(lambda x: isinstance(x, torch.device),args))
+        if len(dtargs) == 0:
+            device = kwargs.get('device', None)
+        else:
+            device = devargs[0]
+        if dtype is not None:
+            self.dtype = dtype
+        if device is not None:
+            self.device = device
+        return self
+
+    @abc.abstractmethod
+    def get_properties(self) -> Dict[str, Any]:
+        """Get properties of the manifold class used to initialize it."""

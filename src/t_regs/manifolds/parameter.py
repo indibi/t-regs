@@ -15,6 +15,13 @@ import weakref
 
 import torch
 
+def inherit_docstring(parent_method):
+    def decorator(func):
+        func.__doc__ = parent_method.__doc__
+        return func
+    return decorator
+
+
 class ManifoldParameter(torch.nn.Parameter):
     r"""A Tensor coupled with a manifold that is considered a module parameter.
     
@@ -75,3 +82,18 @@ class ManifoldParameter(torch.nn.Parameter):
         """Riemannian gradient."""
         if self._manifold is not None:
             return self._rgrad
+
+    #TODO: There is an issue with setting the datatype and device of the
+    # Manifold class using this .to() method. Need fix.
+    @inherit_docstring(torch.nn.Parameter.to)
+    def to(self, *args, **kwargs):
+        new_obj = super().to(*args, **kwargs)
+        new_param = new_obj.as_subclass(type(self))
+        if self._manifold is not None:
+            if hasattr(self._manifold, 'to'):
+                new_param._manifold = self._manifold.to(*args, **kwargs)
+            else:
+                new_param._manifold = self._manifold
+        else:
+            new_param._manifold = self._manifold
+        return new_param

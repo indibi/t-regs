@@ -10,11 +10,11 @@ import numpy as np
 
 from ...manifolds import Manifold
 from .problem import Problem
-from .line_searcher import LineSearcher
+from .line_searcher import LineSearcher, ArmijoPointSearch
 from ...utils import printer
 
 @dataclass
-class GradientDescentResult:
+class GradientDescentResult: # pylint: disable=missing-class-docstring
     point: Any
     objective: float
     iterations: int
@@ -85,11 +85,12 @@ class RiemmannianGradientDescent:
         if step_size is None:
             if line_searcher is None:
                 self.line_searcher = LineSearcher()
-            elif isinstance(line_searcher, LineSearcher):
+            elif isinstance(line_searcher, (LineSearcher, ArmijoPointSearch)):
                 self.line_searcher = line_searcher
             else:
                 raise TypeError(("No step size is provided and the line "
-                                 "search algorithm is not of type LineSearcher")
+                                 "search algorithm is not of type LineSearcher "
+                                 "or ArmijoPointSearch")
                 )
         else:
             if step_size <= 0:
@@ -167,29 +168,45 @@ class RiemmannianGradientDescent:
         f_x = problem.objective(x, backward_pass=True)
         nabla_x = problem.grad(x, repeat_forward=False)
         descend_dir = -manifold.project(x, nabla_x) # Descent direction
+        # `descend_dir` already on the tangent space, no need to project.
         grad_norm = manifold.norm(x, descend_dir, project=False)
-
+        log = {}
         column_printer.print_row([it, f_x, grad_norm])
         self._add_log_entry(start_time, it, x, f_x)
         while True:
             it += 1
             if self.step_size is None:
-                step_size, x, step_count = self.line_searcher.search(
+                if isinstance(self.line_searcher, ArmijoPointSearch):
+                    search_result = self.line_searcher.search(
+                                problem, x, descend_dir, f_x, descend_dir,
+                                )
+                    step_size = search_result.step_size
+                    x = search_result.x_new
+                    step_count = search_result.step_count
+                    descend_dir = -search_result.new_grad_f_x
+                    log = {'step_size': step_size, 'step_count': step_count}
+                else:
+                    step_size, x, step_count = self.line_searcher.search(
                     problem, x, descend_dir, f_x, -(grad_norm**2)
-                )
+                    )
+                    f_x = problem.objective(x, backward_pass=True)
+                    nabla_x = problem.grad(x, repeat_forward=False)
+                    func_evals += 1
+                    descend_dir = -manifold.project(x, nabla_x)
+                    grad_norm = manifold.norm(x, descend_dir, project=False)
                 func_evals += step_count
             else:
                 step_size = self.step_size
                 x = manifold.retract(x, step_size*descend_dir)
 
-            f_x = problem.objective(x, backward_pass=True)
-            nabla_x = problem.grad(x, repeat_forward=False)
-            func_evals += 1
-            descend_dir = -manifold.project(x, nabla_x)
-            grad_norm = manifold.norm(x, descend_dir, project=False)
+                f_x = problem.objective(x, backward_pass=True)
+                nabla_x = problem.grad(x, repeat_forward=False)
+                func_evals += 1
+                descend_dir = -manifold.project(x, nabla_x)
+                grad_norm = manifold.norm(x, descend_dir, project=False)
 
             column_printer.print_row([it, f_x, grad_norm])
-            self._add_log_entry(start_time, it, x, f_x)
+            self._add_log_entry(start_time, it, x, f_x, **log)
 
             stopping_criterion = self._check_stopping_criteria(start_time,
                                                                it,
@@ -240,7 +257,7 @@ class RiemmannianGradientDescent:
                 f"Terminated - min grad norm reached after {iteration} "
                 f"iterations, {run_time:.3f} seconds."
             )
-        elif (step_size < self.min_step_size) or (step_size ==0):
+        elif (step_size < self.min_step_size):#  or (step_size ==0):
             reason = (
                 f"Terminated - min step_size reached after {iteration} "
                 f"iterations, {run_time:.2f} seconds."
@@ -289,7 +306,7 @@ class RiemmannianGradientDescent:
                 f" with {self.line_searcher.step_size_strategy} step size")
         return name
 
-    def get_parameters(self) -> dict:
+    def get_parameters(self) -> dict: # pylint: disable=missing-function-docstring
         params = {
             'step_size': self.step_size,
             'max_it': self.max_it,

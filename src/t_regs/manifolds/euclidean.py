@@ -29,7 +29,7 @@ class Euclidean(Manifold):
                     v1: torch.Tensor,
                     v2: torch.Tensor,
                     project = True) -> float:
-        return torch.tensordot(v1, v2)
+        return torch.tensordot(v1, v2, dims=len(self._dims))
 
     def norm(self, point, v, project = True): # pylint:disable=arguments-renamed
         return (v**2).sum()
@@ -64,3 +64,10 @@ class Euclidean(Manifold):
         :math:`T_X \mathcal{M}` of the manifold at :math:`X`.
         """
         return Y
+
+    def to(self, *args, **kwargs):
+        super().to(*args, **kwargs)
+        return self
+
+    def get_properties(self):
+        return {'dims': self._dims}

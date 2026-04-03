@@ -57,7 +57,7 @@ class GeneralizedSteifel(Manifold):
         self._n = n
         self._p = p
         self._G = G # pylint: disable=invalid-name
-
+        self.__retraction = retraction
         if (n<p) or (p<1):
             raise ValueError((f"Invalid dimensions (n={n}, p={p}) for Steifel"
                               " Manifold."))
@@ -178,3 +178,16 @@ class GeneralizedSteifel(Manifold):
         frob_norm = torch.linalg.norm(XTGX - I_p, ord='fro')  # pylint: disable=not-callable
         denom = self._p
         return frob_norm / denom
+
+    def to(self, *args, **kwargs):
+        super().to(*args, **kwargs)
+        self._G = self._G.to(*args, **kwargs)
+        return self
+
+    def get_properties(self):
+        return {
+            'n': self._n,
+            'p': self._p,
+            'G': self._G,
+            'retraction': self.__retraction,
+        }

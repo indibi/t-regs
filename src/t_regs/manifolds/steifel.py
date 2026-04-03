@@ -28,10 +28,11 @@ class Steifel(Manifold):
                  n: int,
                  p: int,
                  # k: int = 1, TODO: Add support for product of k steifel manifolds.
-                 retraction: str = 'qr',
+                 retraction: str = 'polar',
                  **kwargs):
         self._n = n
         self._p = p
+        self.__retraction = retraction
 
         if (n<p) or (p<1):
             raise ValueError((f"Invalid dimensions (n={n}, p={p}) for Steifel"
@@ -88,6 +89,7 @@ class Steifel(Manifold):
         return self._retraction(point, vector)
 
     def _retract_qr(self, point, vector):
+        # TODO: Check if there is an issue with QR. 
         x = point + vector
         Q, _ = torch.linalg.qr(x) # pylint: disable=not-callable,invalid-name
         return Q                  # pylint: disable=invalid-name
@@ -112,3 +114,14 @@ class Steifel(Manifold):
         XTY = X.T@Y                                 # pylint: disable=invalid-name
         skewXTY = 0.5 * (XTY - XTY.T)               # pylint: disable=invalid-name
         return (Y - X@XTY) + X @ skewXTY            # pylint: disable=invalid-name
+
+    def to(self, *args, **kwargs):
+        super().to(*args, **kwargs)
+        return self
+
+    def get_properties(self):
+        return {
+            'n': self._n,
+            'p': self._p,
+            'retraction': self.__retraction,
+        }
