@@ -273,7 +273,7 @@ class GenTuckerBCD(RegressionBaseClass):
 
             rgd_result = solver.solve(problem, x0=self.C)
             self.solver_results['C'] = rgd_result
-            self.C = rgd_result.point
+            self.C.copy_(rgd_result.point)
 
             for _ in range(1):
                 for mode in modes:
@@ -289,29 +289,9 @@ class GenTuckerBCD(RegressionBaseClass):
                             solver.line_searcher.init_step_size = (
                                 float(1.0 / problem.lipschitz_constant)
                                 )
-                    # else:
-                    #     # Here I'm resetting the initial step size of the search
-                    #     # after the RGD is completed.
-                    #     solver.line_searcher.init_step_size = (
-                    #         solver.line_searcher.init_step_size
-                    #     )
                     rgd_result = solver.solve(problem, x0=U)
                     self.solver_results[f'U_{mode}'] = rgd_result
-                    self.Us[mode-1] = rgd_result.point
-
-                    # func_f, grad_f, L = self._initialize_C_subproblem_for_RGD(
-                    #     X,
-                    #     y,
-                    #     return_lipschitz=True
-                    #     )
-                    # solver = self.subproblem_solvers['C']
-                    # solver.step_size = 1.0 / L
-                    # rgd_result = solver.solve(func_f,
-                    #                     grad_f,
-                    #                     manifold=self.manifold_C,
-                    #                     x0=self.C)
-                    # self.solver_results['C'] = rgd_result
-                    # self.C = rgd_result.point
+                    self.Us[mode-1].copy_(rgd_result.point)
 
             # Calculate values for logging
             with torch.no_grad():

@@ -287,7 +287,7 @@ class TuckerRegressor(nn.Module):
         eta = mmp(x_v, self.Us, modes=self.in_prod_dims, transpose=True)
 
         eta = torch.tensordot(eta, self.core,
-                              dims=([i-1 for i in self.in_prod_modes],
+                              dims=([i-1 for i in self.in_prod_dims],
                                     [i+self._M for i in range(self._N)]))
         if self._full_rank_task:
             return eta
@@ -306,7 +306,7 @@ class TuckerRegressor(nn.Module):
         x_v = x.view([n_samp] + [1]*self._M + list(self.feature_ranks))
 
         eta = torch.tensordot(x_v, self.core,
-                            dims=([i-1 for i in self.in_prod_modes],
+                            dims=([i-1 for i in self.in_prod_dims],
                                   [i+self._M for i in range(self._N)]))
         if self._full_rank_task:
             return eta
@@ -333,7 +333,7 @@ class TuckerRegressor(nn.Module):
                              transpose=True)
 
         eta = torch.tensordot(eta, self.core,
-                            dims=([i-1 for i in self.in_prod_modes],
+                            dims=([i-1 for i in self.in_prod_dims],
                                   [i+self._M for i in range(self._N)]))
         if self._full_rank_task:
             return eta
@@ -350,7 +350,7 @@ class TuckerRegressor(nn.Module):
         # Reshape it to have dimensions with [n_samp, *task_ranks, F_n, r_{F_n}]
         n = self._active_dir_n
         tdims = list(self.task_ranks)
-        fn, r_fn = self.feature_dims[n-1], self.task_dims[n-1]
+        fn, r_fn = self.feature_dims[n-1], self.feature_ranks[n-1]
         x_v = x.view([n_samp] + tdims + [fn, r_fn])
         eta = torch.tensordot(x_v, self.Us[n-1], dims=2)
         if self._full_rank_task:
