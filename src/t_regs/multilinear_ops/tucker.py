@@ -3,33 +3,10 @@
 Author: Mert Indibi
 Date: 9/9/2025
 """
-
-import numpy as np
 import torch
 
 from .graph_linear_ops import GraphLinearOperator
 from .matricization import matricize, tensorize
-from .tensor_products import multi_mode_product
-
-class TuckerTensor:
-    """Class representing a tensor in Tucker decomposition format.
-
-    Attributes:
-        core [np.ndarray|torch.Tensor]: Core tensor.
-        factors list[np.ndarray|torch.Tensor]: Factor matrices for each mode.
-    """
-
-    def __init__(self, core, factors):
-        self.core = core
-        self.factors = factors
-
-    def to_tensor(self):
-        """Convert Tucker representation to full tensor.
-
-        Returns:
-            np.ndarray or torch.Tensor: Full tensor reconstructed from Tucker format.
-        """
-        pass
 
 
 

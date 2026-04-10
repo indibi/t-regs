@@ -1,17 +1,20 @@
+"""Module for Riemannian Gradient Descent."""
+
 import collections
 from time import perf_counter
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Callable
+from typing import Any, Dict, Optional
 
 import torch
 import numpy as np
 
 from ...manifolds import Manifold
-from .line_searcher import LineSearcher
+from .problem import Problem
+from .line_searcher import LineSearcher, ArmijoPointSearch
 from ...utils import printer
 
 @dataclass
-class GradientDescentResult:
+class GradientDescentResult: # pylint: disable=missing-class-docstring
     point: Any
     objective: float
     iterations: int
@@ -36,33 +39,32 @@ class RiemmannianGradientDescent:
 
     Parameters
     ----------
-        line_searcher: LineSearcher | None
-            Line searching algorithm used for the descent step size. Defaults to
-            the default parameters of backtracking line search.
-        step_size: float | None = None
-            Fixed step size for the retraction step.
-        max_it : int = 1000
-            Maximum number of iterations the algorithm is allowed to run for
-        min_gradient_norm : float = 1e-8
-            Termination threshold based on the norm of the riemmannian gradient
-        max_time : float | None = None
-            Upper bound on run time of the solver in seconds.
-        max_function_evals : int = 5000
-            Maximum number of function evaluations allowed for the algorithm.
-        min_step_size : float = 0
-            Termination threshold used with line search algorithm.
-        verbosity : int = 0
-            Level of verbosity of the algorithm
-        log_verbosity : int = 1
-            Level of verbosity for algorithm logging.
-                0: No logging performed
-                1: Everything but the point is logged
-                2: Algorithm iterations are also saved.
-        report_period : int = 1
-            Controls how often the results are reported as algorithm iterates.
-        logging_period : int = 1
-            Controls how often the results are logged.
-        
+    line_searcher: ArmijoPointSearch | None
+        Line searching algorithm used for the descent step size. Defaults to
+        the default parameters of backtracking line search.
+    step_size: float | None = None
+        Fixed step size for the retraction step.
+    max_it : int = 1000
+        Maximum number of iterations the algorithm is allowed to run for
+    min_gradient_norm : float = 1e-8
+        Termination threshold based on the norm of the riemmannian gradient
+    max_time : float | None = None
+        Upper bound on run time of the solver in seconds.
+    max_function_evals : int = 5000
+        Maximum number of function evaluations allowed for the algorithm.
+    min_step_size : float = 0
+        Termination threshold used with line search algorithm.
+    verbosity : int = 0
+        Level of verbosity of the algorithm
+    log_verbosity : int = 1
+        Level of verbosity for algorithm logging.
+            0: No logging performed
+            1: Everything but the point is logged
+            2: Algorithm iterations are also saved.
+    report_period : int = 1
+        Controls how often the results are reported as algorithm iterates.
+    logging_period : int = 1
+        Controls how often the results are logged.
     """
 
     def __init__(self,
@@ -83,11 +85,12 @@ class RiemmannianGradientDescent:
         if step_size is None:
             if line_searcher is None:
                 self.line_searcher = LineSearcher()
-            elif isinstance(line_searcher, LineSearcher):
+            elif isinstance(line_searcher, (LineSearcher, ArmijoPointSearch)):
                 self.line_searcher = line_searcher
             else:
                 raise TypeError(("No step size is provided and the line "
-                                 "search algorithm is not of type LineSearcher")
+                                 "search algorithm is not of type LineSearcher "
+                                 "or ArmijoPointSearch")
                 )
         else:
             if step_size <= 0:
@@ -106,9 +109,7 @@ class RiemmannianGradientDescent:
 
 
     def solve(self,
-              func_f: Callable[[torch.Tensor], float | torch.Tensor],
-              grad_f: Callable[[torch.Tensor], torch.Tensor],
-              manifold: Manifold,
+              problem: Problem,
               x0: torch.Tensor | None = None,
               generator: torch.Generator = None
               ) -> GradientDescentResult:
@@ -116,12 +117,8 @@ class RiemmannianGradientDescent:
         
         Parameters
         ----------
-        func_f: 
-            Smooth objective function :math:`f` to be minimized
-        grad_f:
-            Function evaluating the euclidean gradient of :math:`f` at a point.
-        manifold:
-            The manifold to minimize :math:`f` over
+        problem:
+            Problem object representing the manifold constrained optimization.
         x0:
             Initial point to start the optimization
         generator:
@@ -132,7 +129,7 @@ class RiemmannianGradientDescent:
         -------
             result: GradientDescentResult
         """
-
+        manifold: Manifold = problem.manifold
         if x0 is None:
             x = manifold.random_point(generator=generator)
         else:
@@ -145,8 +142,9 @@ class RiemmannianGradientDescent:
             column_printer = printer.ColumnPrinter(
                 columns=[
                     ("Iteration", f"{iteration_format_length}d"),
-                    ("Cost", "+.16e"),
-                    ("Gradient norm", ".8e"),
+                    ("Cost", "+.12e"),
+                    ("Gradient norm", ".6e"),
+                    ('Step size', ".4e"),
                 ]
             )
         else:
@@ -168,32 +166,52 @@ class RiemmannianGradientDescent:
         start_time = perf_counter()
         func_evals = 1
         it = 0
-        f_x = func_f(x)
-        nabla_x = grad_f(x)
+        f_x = problem.objective(x, backward_pass=True)
+        nabla_x = problem.grad(x, repeat_forward=False)
         descend_dir = -manifold.project(x, nabla_x) # Descent direction
+        # `descend_dir` already on the tangent space, no need to project.
         grad_norm = manifold.norm(x, descend_dir, project=False)
-
+        log = {}
         column_printer.print_row([it, f_x, grad_norm])
-        self._add_log_entry(it, x, f_x)
+        self._add_log_entry(start_time, it, x, f_x)
         while True:
             it += 1
             if self.step_size is None:
-                step_size, x, step_count = self.line_searcher.search(
-                    func_f, manifold, x, descend_dir, f_x, -(grad_norm**2)
-                )
-                f_x = self.line_searcher.old_f_x
+                if isinstance(self.line_searcher, ArmijoPointSearch):
+                    search_result = self.line_searcher.search(
+                                problem, x, descend_dir, f_x, descend_dir,
+                                )
+                    step_size = search_result.step_size
+                    x.copy_(search_result.x_new)
+                    step_count = search_result.step_count
+                    f_x = search_result.f_x_new
+                    descend_dir = -search_result.new_grad_f_x
+                    # Armijo Point Search already projects the gradient to
+                    # tangent space and calculates the riemannian gradient
+                    grad_norm = manifold.norm(x, descend_dir, project=False)
+                    log = {'step_size': step_size, 'step_count': step_count}
+                else:
+                    step_size, x, step_count = self.line_searcher.search(
+                    problem, x, descend_dir, f_x, -(grad_norm**2)
+                    )
+                    f_x = problem.objective(x, backward_pass=True)
+                    nabla_x = problem.grad(x, repeat_forward=False)
+                    func_evals += 1
+                    descend_dir = -manifold.project(x, nabla_x)
+                    grad_norm = manifold.norm(x, descend_dir, project=False)
                 func_evals += step_count
             else:
                 step_size = self.step_size
-                x = manifold.retract(x, step_size*descend_dir)
-                f_x = func_f(x)
-                func_evals += 1
-            nabla_x = grad_f(x)
-            descend_dir = -manifold.project(x, nabla_x)
-            grad_norm = manifold.norm(x, descend_dir, project=False)
+                x.copy_(manifold.retract(x, step_size*descend_dir))
 
-            column_printer.print_row([it, f_x, grad_norm])
-            self._add_log_entry(it, x, f_x)
+                f_x = problem.objective(x, backward_pass=True)
+                nabla_x = problem.grad(x, repeat_forward=False)
+                func_evals += 1
+                descend_dir = -manifold.project(x, nabla_x)
+                grad_norm = manifold.norm(x, descend_dir, project=False)
+
+            column_printer.print_row([it, f_x, grad_norm, step_size])
+            self._add_log_entry(start_time, it, x, f_x, **log)
 
             stopping_criterion = self._check_stopping_criteria(start_time,
                                                                it,
@@ -244,7 +262,7 @@ class RiemmannianGradientDescent:
                 f"Terminated - min grad norm reached after {iteration} "
                 f"iterations, {run_time:.3f} seconds."
             )
-        elif (step_size < self.min_step_size) or (step_size ==0):
+        elif (step_size < self.min_step_size):#  or (step_size ==0):
             reason = (
                 f"Terminated - min step_size reached after {iteration} "
                 f"iterations, {run_time:.2f} seconds."
@@ -271,12 +289,12 @@ class RiemmannianGradientDescent:
             'iterations': collections.defaultdict(list)
             }
 
-    def _add_log_entry(self, iteration, point, objective, **kwargs):
+    def _add_log_entry(self, start_time, iteration, point, objective, **kwargs):
         if self.log_verbosity <=0:
             return
         if (self.logging_period !=0) and (iteration % self.logging_period ==0):
             self.log['iterations']['iteration'].append(iteration)
-            self.log['iterations']['time'].append(perf_counter())
+            self.log['iterations']['time'].append(perf_counter()-start_time)
             self.log['iterations']['objective'].append(objective)
             for key, value in kwargs.items():
                 self.log['iterations'][key].append(value)
@@ -286,14 +304,14 @@ class RiemmannianGradientDescent:
 
 
     def __str__(self):
-        if self.line_searcher is None:
+        if self.step_size is not None:
             name = type(self).__name__ + " with fixed step size"
         else:
             name = type(self).__name__ + (
                 f" with {self.line_searcher.step_size_strategy} step size")
         return name
 
-    def get_parameters(self) -> dict:
+    def get_parameters(self) -> dict: # pylint: disable=missing-function-docstring
         params = {
             'step_size': self.step_size,
             'max_it': self.max_it,

@@ -1,4 +1,6 @@
+"""Abstract Base Class for Manifold."""
 import abc
+from typing import Dict, Any
 
 import torch
 
@@ -13,23 +15,34 @@ class Manifold(abc.ABC):
             String representation for the manifold
         dimension : int
             Dimension of the tangent vector space for the manifold
+        size: torch.Size
+            The size of the tensor object that holds the point.
     """
-
+    # TODO: Find if we really need to specify the device and datatype and get
+    # rid of them if it's possible. Probably working with the nn.Parameter
+    # container and the nn.Module containers should allow me to get rid of them.
     def __init__(
             self,
             name : str,
             dimension : int,
-            device: str = 'cuda:0' if torch.cuda.is_available() else 'cpu',
+            size: torch.Size,
+            device: str = 'cuda' if torch.cuda.is_available() else 'cpu',
             dtype: torch.dtype = torch.float64):
         if (not isinstance(dimension, int)) and (dimension <0):
             raise TypeError("Manifold dimension must be a non-negative integer")
         self._name = name
         self._dimension = dimension
+        self._size = size
         self.device = device
         self.dtype = dtype
 
     def __str__(self):
         return self._name
+
+    @property
+    def size(self) -> torch.Size:
+        """The size of the tensor that encodes the point."""
+        return self._size
 
     @property
     def dim(self) -> int:
@@ -93,3 +106,26 @@ class Manifold(abc.ABC):
                 point: torch.Tensor,
                 vector: torch.Tensor) -> torch.Tensor:
         """Project `vector` onto tangent space of the manifold at the `point`"""
+
+    def to(self, *args, **kwargs):
+        """Move the manifold to device if it is defined through a torch.Tensor"""
+        
+        dtargs = list(filter(lambda x: isinstance(x, torch.dtype),args))
+        if len(dtargs) == 0:
+            dtype = kwargs.get('dtype', None)
+        else:
+            dtype = dtargs[0]
+        devargs = list(filter(lambda x: isinstance(x, torch.device),args))
+        if len(dtargs) == 0:
+            device = kwargs.get('device', None)
+        else:
+            device = devargs[0]
+        if dtype is not None:
+            self.dtype = dtype
+        if device is not None:
+            self.device = device
+        return self
+
+    @abc.abstractmethod
+    def get_properties(self) -> Dict[str, Any]:
+        """Get properties of the manifold class used to initialize it."""

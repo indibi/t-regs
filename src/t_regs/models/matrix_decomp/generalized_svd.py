@@ -1,6 +1,6 @@
 """Generalized Least Squares Matrix Decomposition (GSVD) module.
 """
-from typing import Any
+from typing import Any, Optional
 
 import torch
 
@@ -13,8 +13,8 @@ import torch
 # TODO: Figure out why cholesky method gives slightly different results than eig method
 
 def generalized_svd(X: torch.Tensor,
-                    Q1: torch.Tensor,
-                    Q2: torch.Tensor,
+                    Q1: Optional[torch.Tensor]= None,
+                    Q2: Optional[torch.Tensor]= None,
                     rank: int | None = None,
                     method: str ='eig',
                     **kwargs: dict[str, Any],
@@ -22,9 +22,9 @@ def generalized_svd(X: torch.Tensor,
     """Perform Generalized Singular Value Decomposition (GSVD) of matrix X.
     
     Based on the formulation in:
-    [1] 'Allen, Genevera I., Logan Grosenick, and Jonathan Taylor. "A generalized
-        least-square matrix decomposition." Journal of the American Statistical
-        Association 109.505 (2014): 145-159.'
+    [1] 'Allen, Genevera I., Logan Grosenick, and Jonathan Taylor. "A
+        generalized least-square matrix decomposition." Journal of the American
+        Statistical Association 109.505 (2014): 145-159.'
     
     Parameters:
     -----------
@@ -59,38 +59,56 @@ def generalized_svd(X: torch.Tensor,
         rank = min(m, n)
     
     if method == 'eig':
+        eig_val_threshold = kwargs.get('eig_val_threshold', 1e-12)
         # Eigen decomposition method
-        D1, V1 = torch.linalg.eigh(Q1)
-        D2, V2 = torch.linalg.eigh(Q2)
-        
-        EIG_VAL_THRESHOLD = kwargs.get('eig_val_threshold', 1e-12)
-        V1 = V1[:, D1 >= EIG_VAL_THRESHOLD]
-        D1 = D1[D1 >= EIG_VAL_THRESHOLD]
-        V2 = V2[:, D2 >= EIG_VAL_THRESHOLD]
-        D2 = D2[D2 >= EIG_VAL_THRESHOLD]
+        X_tilde = X
+        if Q1 is not None:
+            D1, V1 = torch.linalg.eigh(Q1)
+            V1 = V1[:, D1 >= eig_val_threshold]
+            D1 = D1[D1 >= eig_val_threshold]
+            Q1_sqrt = V1 @ torch.diag(torch.sqrt(D1)) @ V1.T
+            Q1_sqrt_inv = V1 @ torch.diag(1.0 / torch.sqrt(D1)) @ V1.T
+            X_tilde = Q1_sqrt @ X_tilde
+        if Q2 is not None:
+            D2, V2 = torch.linalg.eigh(Q2)
+            V2 = V2[:, D2 >= eig_val_threshold]
+            D2 = D2[D2 >= eig_val_threshold]
+            Q2_sqrt = V2 @ torch.diag(torch.sqrt(D2)) @ V2.T
+            Q2_sqrt_inv = V2 @ torch.diag(1.0 / torch.sqrt(D2)) @ V2.T
+            X_tilde = X_tilde @ Q2_sqrt
 
-        Q1_sqrt = V1 @ torch.diag(torch.sqrt(D1)) @ V1.T
-        Q2_sqrt = V2 @ torch.diag(torch.sqrt(D2)) @ V2.T
 
-        Q1_sqrt_inv = V1 @ torch.diag(1.0 / torch.sqrt(D1)) @ V1.T
-        Q2_sqrt_inv = V2 @ torch.diag(1.0 / torch.sqrt(D2)) @ V2.T
-
-        X_tilde = Q1_sqrt @ X @ Q2_sqrt
         U_tilde, S, Vt_tilde = torch.linalg.svd(X_tilde, full_matrices=False)
-        U = Q1_sqrt_inv @ U_tilde[:, :rank]
-        Vt = Vt_tilde[:rank, :] @ Q2_sqrt_inv
+        if Q1 is None:
+            U = U_tilde[:,:rank]
+        else:
+            Q1_sqrt_inv @ U_tilde[:, :rank]
+        if Q2 is None:
+            Vt = Vt_tilde[:rank, :]
+        else:
+            Vt_tilde[:rank, :] @ Q2_sqrt_inv
         S = S[:rank]
     elif method == 'cholesky':
         # Cholesky decomposition method
-        Q1_tilde = torch.linalg.cholesky(Q1)
-        Q2_tilde = torch.linalg.cholesky(Q2)
+        X_tilde = X
+        if Q1 is not None:
+            Q1_tilde = torch.linalg.cholesky(Q1)
+            X_tilde = Q1_tilde.T @ X_tilde
+        if Q2 is not None:
+            Q2_tilde = torch.linalg.cholesky(Q2)
+            X_tilde = X_tilde @ Q2_tilde
 
-        X_tilde = Q1_tilde.T @ X @ Q2_tilde
         U_tilde, S, Vt_tilde = torch.linalg.svd(X_tilde, full_matrices=False)
         U_tilde = U_tilde[:, :rank]
         V_tilde = Vt_tilde[:rank, :].T
-        U = torch.linalg.solve(Q1_tilde, U_tilde)
-        V = torch.linalg.solve(Q2_tilde, V_tilde)
+        if Q1 is None:
+            U = U_tilde
+        else:
+            U = torch.linalg.solve(Q1_tilde, U_tilde)
+        if Q2 is None:
+            V = V_tilde
+        else:
+            V = torch.linalg.solve(Q2_tilde, V_tilde)
         Vt = V.T
         S = S[:rank]
     else:

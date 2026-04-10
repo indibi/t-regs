@@ -43,7 +43,7 @@ class GeneralizedSteifel(Manifold):
                     the eigen decomposition of G to compute G^{-1/2}. It may
                     be more efficient when G is cyclic etc. NotImplemented yet.
                 `polar` : Polar decomposition based retraction with complexity
-                    NotImplemented yet.766666667
+                    NotImplemented yet.
         **kwargs : dict, optional
             Additional keyword arguments for the Manifold base class.
     """
@@ -57,7 +57,7 @@ class GeneralizedSteifel(Manifold):
         self._n = n
         self._p = p
         self._G = G # pylint: disable=invalid-name
-
+        self.__retraction = retraction
         if (n<p) or (p<1):
             raise ValueError((f"Invalid dimensions (n={n}, p={p}) for Steifel"
                               " Manifold."))
@@ -68,7 +68,8 @@ class GeneralizedSteifel(Manifold):
         self._retraction = getattr(self, f"_retract_{retraction}")
         dimension = n*p - p*(p+1) /2
         name = f"Generalized Steifel Manifold St_G({n}, {p})"
-        super().__init__(name, dimension, **kwargs)
+        size = torch.Size((n,p))
+        super().__init__(name, dimension, size, **kwargs)
 
 
     def inner_product(self,
@@ -177,3 +178,16 @@ class GeneralizedSteifel(Manifold):
         frob_norm = torch.linalg.norm(XTGX - I_p, ord='fro')  # pylint: disable=not-callable
         denom = self._p
         return frob_norm / denom
+
+    def to(self, *args, **kwargs):
+        super().to(*args, **kwargs)
+        self._G = self._G.to(*args, **kwargs)
+        return self
+
+    def get_properties(self):
+        return {
+            'n': self._n,
+            'p': self._p,
+            'G': self._G,
+            'retraction': self.__retraction,
+        }

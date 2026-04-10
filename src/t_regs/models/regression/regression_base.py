@@ -14,7 +14,6 @@ class RegressionBaseClass(ABC):
                     verbose: int = 0,
                     **kwargs):
         """Initialize Regression Model"""
-        self.is_fitted = False
         self.dtype = dtype
         self.device = device
         self.verbose = verbose
@@ -24,6 +23,9 @@ class RegressionBaseClass(ABC):
         self.solver_params = {}
         self.solver_results = defaultdict(lambda: None)
 
+        self._task_dims = None
+        self._coefficient_dims = None
+
     def score(self, X, y, **kwargs):                # py-lint: disable=invalid-name
         """Score the fit of the model"""
         X = self._move_input(X)
@@ -32,8 +34,6 @@ class RegressionBaseClass(ABC):
 
     def predict(self, X, y=None, **kwargs):         # py-lint: disable=invalid-name
         """Predict target values for given input data using the trained model"""
-        if not self.is_fitted:
-            raise RuntimeError("The model must be fitted before prediction.")
         X = self._move_input(X)
         y = self._move_input(y)
         return self._predict(X, y, **kwargs)
@@ -43,7 +43,6 @@ class RegressionBaseClass(ABC):
         X = self._move_input(X)
         y = self._move_input(y)
         fit = self._fit(X, y, **kwargs)
-        self.is_fitted = True
         return fit
 
     @abstractmethod
@@ -58,14 +57,26 @@ class RegressionBaseClass(ABC):
     def _score(self, X, y, **kwargs):               # py-lint: disable=invalid-name
         """Internal method to score the fit of the model."""
 
-    # def get_params(self, **kwargs):
-    #     """Get the model parameters"""
-    #     pass
+    @property
+    def task_dims(self):
+        """Dimensions of the task in the fitted model."""
+        return self._task_dims
 
-    # @abstractmethod
-    # def set_params(self, **kwargs):
-    #     """Set the model parameters"""
-    #     pass
+    @task_dims.setter
+    def task_dims(self, value):
+        """Set dimensions of the task in the fitted model."""
+        self._task_dims = value
+
+    @property
+    def coefficient_dims(self):
+        """Dimensions of the regression coefficients."""
+        return self._coefficient_dims
+
+
+    @coefficient_dims.setter
+    def coefficient_dims(self, value):
+        """Set dimensions of the regression model coefficients."""
+        self._coefficient_dims = value
 
 
     def move_to_device(self, device):
@@ -89,7 +100,7 @@ class RegressionBaseClass(ABC):
     def _move_input(self, input_):
         """Move input data to the model's device and dtype."""
         if isinstance(input_, torch.Tensor):
-            return input.to(self.device, dtype=self.dtype)
+            return input_.to(self.device, dtype=self.dtype)
         elif isinstance(input_, np.ndarray):
             return torch.tensor(input_, device=self.device, dtype=self.dtype)
         else:

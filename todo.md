@@ -30,15 +30,6 @@ Create model demonstrations for,
     - `generalized_svd.py` <span style="color:gray;">% Generalized Least Squares Matrix Decomposition GMD (Allen et. al.) </span>
       - [ ] Tested
       - [ ] Fit score implemented
-      <!--
-      - Methods:
-        - `.__init__()`
-        - `.__call__()`
-        - `.score()`
-        - `.fit()`
-      - Attributes:
-        - `.asdf`
-      -->
   - `tensor_decomp/`
     - `tucker/`
       - HoSVD: <span style="color:gray;">% Higher-order Singular Value Decomposition</span>
@@ -118,6 +109,7 @@ Create model demonstrations for,
       - [ ] `radmm.py`
       - [ ] `riemannian_ada.py`
         - [ ] Tested
+      - [ ] List line search or step size selection methods similar to the ADAM or BB step size methods.
     - [ ] `genlasso/`
       - [ ] 
     - [x] `proximal_gradient_base.py`
@@ -125,6 +117,17 @@ Create model demonstrations for,
       - [ ] Implement accelerated proximal gradient as well.
     - [x] `admm_base_class.py`
       - [ ] Restructure to not require inheritance from base class
+### Manifolds
+  - `manifolds/`
+    - [ ] `product_manifold.py`
+      - [ ] Implement product manifold
+      - [ ] Test it on product manifold spanning matrices.
+      - [ ] Compare convergence properties.
+    - [x] `parameter.py` Wrapper for PyTorch parameters that extends the autograd functionality to riemannian gradients.
+      - [ ] Tested
+
+### utils
+- [ ] Implement a torch data loader for tensor regression tasks.
 ### Operators
 - `proximal_ops/`
   - [ ] `proj_l1_ball.py`
@@ -138,6 +141,15 @@ Create model demonstrations for,
     - [ ] Implementing statistical fit scores
   - `prox_grouped_l21.py`
 - `multilinear_ops/`
+  - [ ] torch.nn.Module implementations for
+    - [ ] Canonical Polyadic
+    - [ ] Tucker
+      - [ ] Test operation
+      - [ ] Test autograd
+      - [ ] Test auto_rgrad
+      - [ ] Benchmark speed
+      - [ ] Add regularization
+    - [ ] Low Separable Rank
   - [x] matricization
   - `matrix_products.py`
     - [ ] Khatri-Rao Product

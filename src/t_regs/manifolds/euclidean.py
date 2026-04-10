@@ -1,3 +1,5 @@
+"""Module for euclidean manifold."""
+
 from typing import Sequence
 import math
 
@@ -16,19 +18,20 @@ class Euclidean(Manifold):
     def __init__(self,
                  dims: Sequence[int],
                  **kwargs):
-        self._dims = dims
+        self._dims = tuple(dims)
         dimension = math.prod(dims)
-        name = f"Euclidean Manifold R^({tuple(dims)})"
-        super().__init__(name, dimension, **kwargs)
+        name = f"Euclidean Manifold R^({self._dims})"
+        size = torch.Size(self._dims)
+        super().__init__(name, dimension, size, **kwargs)
 
     def inner_product(self,
                     point: torch.Tensor,
                     v1: torch.Tensor,
                     v2: torch.Tensor,
                     project = True) -> float:
-        return torch.tensordot(v1, v2)
+        return torch.tensordot(v1, v2, dims=len(self._dims))
 
-    def norm(self, point, v, project = True):
+    def norm(self, point, v, project = True): # pylint:disable=arguments-renamed
         return (v**2).sum()
 
     def random_point(self, generator=None):
@@ -51,8 +54,8 @@ class Euclidean(Manifold):
         return point + vector
 
 
-    def project(self,
-                X: torch.Tensor,
+    def project(self,   # pylint: disable=arguments-renamed
+                X: torch.Tensor, # pylint: disable=unused-argument
                 Y: torch.Tensor) -> torch.Tensor:
         r"""Project `vector` :math:`Y` onto the tangent space on `point` :math:`X`
         
@@ -62,3 +65,9 @@ class Euclidean(Manifold):
         """
         return Y
 
+    def to(self, *args, **kwargs):
+        super().to(*args, **kwargs)
+        return self
+
+    def get_properties(self):
+        return {'dims': self._dims}
