@@ -172,6 +172,7 @@ class LineSearcher:
 @dataclass
 class ArmijoPointResult:
     x_new: torch.Tensor
+    f_x_new: float
     new_grad_f_x: torch.Tensor
     step_size: float
     step_count: int
@@ -195,7 +196,7 @@ class ArmijoPointSearch:
     Parameters
     ----------
     beta: float
-        Attenuation coefficient.
+        Attenuation coefficient β ∈ (0,1)
     alpha: float
         Initial step size guess.
     sigma: float
@@ -211,9 +212,10 @@ class ArmijoPointSearch:
     retain_old_f_x: bool = False
         Retain the function value of the previous function evaluation to guess
         initial step size.
-    retain_old_step_size: bool = False
+    retain_old_step_size: bool = True
         Retain the step size value of the previous line search to adjust the
         initial step size.
+
     References
     ----------
     ..  [1] Absil, P-A., Robert Mahony, and Rodolphe Sepulchre. Optimization 
@@ -307,25 +309,26 @@ class ArmijoPointSearch:
             ):
             t = t * self.beta
             x_new = problem.manifold.retract(x, t*eta)
+
             f_x_new = problem.objective(x_new)
             step_count +=1
 
         if f_x_new > f_x:
             step_size = 0
             x_new = x
+            f_x_new = f_x
+            new_grad_f_x = grad_f_x
         else:
             step_size = t
-        
+            new_grad_f_x = problem.grad(x_new)
+            new_grad_f_x = problem.manifold.project(x_new, new_grad_f_x)
+
         self.old_f_x = f_x
         self.old_alpha = t
-        # if step_size != 0:
-        #     self.old_alpha = self.alpha
-        # else:
-        #     self.old_alpha = t
-        new_grad_f_x = problem.grad(x_new)
-        new_grad_f_x = problem.manifold.project(x_new, new_grad_f_x)
+
         return ArmijoPointResult(
             x_new = x_new,
+            f_x_new = f_x_new,
             new_grad_f_x = new_grad_f_x,
             step_size = step_size,
             step_count = step_count,

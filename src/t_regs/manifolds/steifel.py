@@ -14,13 +14,13 @@ class Steifel(Manifold):
 
     Parameters
     ----------
-        n : int
-            The number of rows
-        p : int
-            The number of columns
-        retraction : str = 'qr'
-            Method used to perform the retraction. Options include 'qr',
-            'eig', 'polar'.
+    n : int
+        The number of rows
+    p : int
+        The number of columns
+    retraction : str = 'qr'
+        Method used to perform the retraction. Options include 'qr',
+        'eig', 'polar'.
     """
     retractions = ['qr', 'polar', 'eig']
 
@@ -89,7 +89,7 @@ class Steifel(Manifold):
         return self._retraction(point, vector)
 
     def _retract_qr(self, point, vector):
-        # TODO: Check if there is an issue with QR. 
+        # TODO: Check if there is an issue with QR
         x = point + vector
         Q, _ = torch.linalg.qr(x) # pylint: disable=not-callable,invalid-name
         return Q                  # pylint: disable=invalid-name

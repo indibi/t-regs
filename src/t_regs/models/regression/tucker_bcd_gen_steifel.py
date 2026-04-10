@@ -222,7 +222,7 @@ class GenTuckerBCD(RegressionBaseClass):
         Us = []
         for mode in range(1, self.M+1):
             grad_m = matricize(grad, [mode])
-            U, _, _ = torch.linalg.svd(grad_m, full_matrices=False)
+            U, _, _ = torch.linalg.svd(grad_m, full_matrices=False) # pylint: disable=not-callable
             Us.append(U[:, :self.ranks[mode-1]])
         return Us
 
@@ -386,8 +386,7 @@ class GenTuckerBCD(RegressionBaseClass):
         
         Returns
         -------
-        func_f:
-        grad_f:
+        problem:
         """
         # TODO: Deal with multi-task regression
         regression_type = self.regression_type
@@ -431,7 +430,7 @@ class GenTuckerBCD(RegressionBaseClass):
                 N = y.shape[0]
                 x = matricize(CX, [1])
                 batch_sum_out_prod = torch.einsum('bi, bj->ij', x, x)/N
-                lipschitz_const = torch.linalg.norm(batch_sum_out_prod, 2)
+                lipschitz_const = torch.linalg.norm(batch_sum_out_prod, 2) # pylint: disable=not-callable
                 if regression_type == 'linear':
                     lipschitz_const += theta*float((L**2).sum())
                 elif regression_type == 'logistic':
@@ -473,7 +472,7 @@ class GenTuckerBCD(RegressionBaseClass):
             N = y.shape[0]
             x = matricize(X_prime, [1])
             batch_sum_out_prod = torch.einsum('bi, bj->ij', x, x)/N
-            lipschitz_const = torch.linalg.norm(batch_sum_out_prod, 2)
+            lipschitz_const = torch.linalg.norm(batch_sum_out_prod, 2) # pylint: disable=not-callable
             if regression_type == 'linear':
                 lipschitz_const += tau
             elif regression_type == 'logistic':

@@ -60,8 +60,11 @@ class TuckerCovariateTransform:
         else:
             raise ValueError(
                 f"Covariate transform type {transform_type} is not known.")
-        self.Us = Us
-        self.core = core
+        self.Us = [ U.detach().to('cpu').pin_memory() for U in Us]
+        # for U in self.Us:
+        #     U.requires_grad = False
+        self.core = core.detach().to('cpu').pin_memory()
+        # self.core.requires_grad = False
         self.mode_n = mode_n
         self._N = len(Us)
         self._M = core.ndim - self._N
@@ -143,6 +146,9 @@ class TuckerRegressor(nn.Module):
 
     Parameters
     ----------
+    regression_type: str
+        The type of the regression model. The available options are 
+        `'linear'`, `'logistic'`, 'multinomial', and 'poisson' regression.
     feature_dims: Sequence[int]
         Dimensions of the feature tensors.
     feature_ranks: Sequence[int]
@@ -184,7 +190,9 @@ class TuckerRegressor(nn.Module):
                        'feature_dir_n',
                        'feature_dir_n_full',
                        'task_dirs']
+    regression_types = ['linear', 'logistic', 'multinomial', 'poisson']
     def __init__(self,
+        regression_type: str,
         feature_dims: Sequence[int],
         feature_ranks: Sequence[int],
         task_dims: Optional[Sequence[int]] = None,
@@ -200,6 +208,7 @@ class TuckerRegressor(nn.Module):
             task_dims = (1,)
         if task_ranks is None:
             task_ranks = task_dims
+        self.regression_type = regression_type
         self.feature_dims = tuple(feature_dims)
         self.feature_ranks = tuple(feature_ranks)
         self.task_dims = tuple(task_dims)
@@ -255,6 +264,88 @@ class TuckerRegressor(nn.Module):
             for i,p in enumerate(self.Vs):
                 self.register_parameter(f"V_{i+1}", p)
 
+    @torch.no_grad()
+    def predict(self, # pylint: disable=unused-argument
+            X:torch.Tensor,
+            y=None,
+            fw_mode='full',
+            mode_n=None,
+            ) -> torch.Tensor:
+        # TODO: Add docstring
+        if fw_mode == 'full':
+            eta = self._fw_full(X)
+        elif self._forward_mode == 'feature_dir_n':
+            eta = self._fw_feature_dir_n(X, mode_n)
+        elif self._forward_mode == 'core':
+            eta = self._fw_core(X)
+        elif self._forward_mode == 'feature_dir_n_full':
+            eta = self._fw_feature_dir_n_full(X, mode_n)
+        # elif self._forward_mode == 'task_dirs':
+            # pass
+        else:
+            raise ValueError(f"Forward mode {fw_mode} is not recognized")
+        return self.inverse_link(eta)
+
+    @torch.no_grad()
+    def score(self, pred:torch.Tensor, Y:torch.Tensor) -> float:
+        # TODO: Add docstring and perhaps other options for scores.
+        if self.regression_type == 'linear':
+            ss_total = torch.sum((Y - torch.mean(Y, dim=0))**2)
+            ss_residual = torch.sum((Y - pred)**2)
+            r2_score = 1.0 - (ss_residual / ss_total)
+            return r2_score.item()
+        elif self.regression_type == 'logistic':
+            pred = pred >0.5
+            accuracy = torch.sum(Y == pred).item()
+            accuracy = accuracy/ Y.shape[0]
+            return accuracy
+        elif self.regression_type == 'multinomial':
+            pred_idx = pred.argmax(dim=1)
+            accuracy = torch.sum(Y == pred_idx).item()
+            accuracy = accuracy / Y.shape[0]
+            return accuracy
+        elif self.regression_type == 'poisson':
+            raise NotImplementedError
+        else:
+            raise ValueError
+
+
+    def inverse_link(self, eta:torch.Tensor) -> torch.Tensor:
+        """Calculate the systematic means (μ) from linear predictors (η)."""
+        # TODO: improve the docstring of the inverse link functions.
+        if self.regression_type == 'linear' or self.regression_type is None:
+            return eta
+        elif self.regression_type == 'logistic':
+            return F.sigmoid(eta)
+        elif self.regression_type == 'multinomial':
+            return F.softmax(eta, dim=1 if eta.ndim == self._M else 0)
+        elif self.regression_type == 'poisson':
+            return torch.exp(eta)
+        else:
+            raise NotImplementedError
+
+    def loss_fn(self,
+                eta: torch.Tensor,
+                Y: torch.Tensor,
+                weights: Optional[torch.Tensor]=None) -> torch.Tensor:
+        """Loss function corresponding to the Generalized Linear Model"""
+        # TODO: improve the docstring of the loss functions.
+        if self.regression_type == 'linear':
+            return F.mse_loss(eta, Y, weight=weights, reduction='sum')
+        elif self.regression_type == 'logistic':
+            return F.binary_cross_entropy_with_logits(eta,
+                                                      Y,
+                                                      weight=weights,
+                                                      reduction='sum')
+        elif self.regression_type == 'multinomial':
+            return F.cross_entropy(eta, Y, weight=weights, reduction='sum')
+        elif self.regression_type == 'poisson':
+            return  F.poisson_nll_loss(eta, Y,
+                                       log_input=True,
+                                       reduction='sum')
+        else:
+            raise NotImplementedError
+
 
     def forward(self, x):
         if self._forward_mode == 'full':
@@ -269,11 +360,6 @@ class TuckerRegressor(nn.Module):
             pass
 
     def _fw_full(self, x):
-        # TODO: Test it
-        # with nsample=1, task_dim = (1,)
-        # with nsample=10, task_dim = (1,)
-        # with nsample=1, task_dim = (2,3)
-        # with nsample=10, task_dim = (2,3)
         if x.ndim == self._N:
             n_samp = 1
         elif x.ndim == self._N+1:
@@ -295,26 +381,31 @@ class TuckerRegressor(nn.Module):
             return mmp(eta, self.Vs, modes=self.out_prod_dims, transpose=False)
 
     def _fw_core(self, x):
-        # TODO: Test
-        if x.ndim == self._N:
+        b_dim = x.ndim - self._N
+        if b_dim == 0:
             n_samp = 1
-        elif x.ndim == self._N+1:
+        elif b_dim == 1:
             n_samp = x.shape[0]
         else:
             raise ValueError("Input covariate order incompatible")
+        
         # Reshape it to have dimensions with [n_samp, 1,...,1, *feature_ranks]
-        x_v = x.view([n_samp] + [1]*self._M + list(self.feature_ranks))
-
-        eta = torch.tensordot(x_v, self.core,
-                            dims=([i-1 for i in self.in_prod_dims],
-                                  [i+self._M for i in range(self._N)]))
+        # x_v = x.view([n_samp] + [1]*self._M + list(self.feature_ranks))
+        eta = torch.tensordot(x, self.core,
+                dims=(
+                    [n for n in range(b_dim, b_dim+self._N)],
+                    [n for n in range(self._M, self.order)]
+                )
+                )
         if self._full_rank_task:
             return eta
         else:
-            return mmp(eta, self.Vs, modes=self.out_prod_dims, transpose=False)
+            return mmp(eta, self.Vs,
+                       modes=[m+1 for m in range(b_dim, b_dim+self._M)],
+                       transpose=False)
 
 
-    def _fw_feature_dir_n(self, x):
+    def _fw_feature_dir_n(self, x, mode_n=None):
         if x.ndim == self._N:
             n_samp = 1
         elif x.ndim == self._N+1:
@@ -322,7 +413,7 @@ class TuckerRegressor(nn.Module):
         else:
             raise ValueError("Input covariate order incompatible")
         # Reshape it to have dimensions with [n_samp, 1,...,1, *feature_ranks]
-        n = self._active_dir_n
+        n = self._active_dir_n if mode_n is None else mode_n
         fdims = list(self.feature_ranks)
         fdims[n-1] = self.feature_ranks[n-1]
         x_v = x.view([n_samp] + [1]*self._M + fdims)
@@ -340,7 +431,7 @@ class TuckerRegressor(nn.Module):
         else:
             return mmp(eta, self.Vs, modes=self.out_prod_dims, transpose=False)
 
-    def _fw_feature_dir_n_full(self, x):
+    def _fw_feature_dir_n_full(self, x, mode_n=None):
         if x.ndim == self._M+2:
             n_samp = 1
         elif x.ndim == self._M+3:
@@ -348,7 +439,7 @@ class TuckerRegressor(nn.Module):
         else:
             raise ValueError("Input covariate order incompatible")
         # Reshape it to have dimensions with [n_samp, *task_ranks, F_n, r_{F_n}]
-        n = self._active_dir_n
+        n = self._active_dir_n if mode_n is None else mode_n
         tdims = list(self.task_ranks)
         fn, r_fn = self.feature_dims[n-1], self.feature_ranks[n-1]
         x_v = x.view([n_samp] + tdims + [fn, r_fn])
@@ -373,18 +464,18 @@ class TuckerRegressor(nn.Module):
         Parameters
         ----------
         forward_mode: str
-            - `full`: Accepts full tensors as inputs covariates and calculates
-                gradients for all parameters.
-            - `feature_dir_n`: Forward accepts dimension reduced tensors as
+            - `'full'`: Accepts inputs covariates in their natural tensor format
+                and calculates gradients for all parameters.
+            - `'feature_dir_n'`: Forward accepts dimension reduced tensors as
                 input covariates. The inputs must have dimensions `(n_samples,
                 r_{F_1}`,...,r_{F_{n-1}}, F_{n}, r_{F_{n+1}}, ..., r_{F_N}}.
-            - `feature_dir_n_full`: Forward accepts dimension reduced tensors as
+            - `'feature_dir_n_full'`: Forward accepts dimension reduced tensors as
                 input covariates. The inputs must have dimensions `(n_samples,
                 r_{T_1},...,r_{T_M}, F_n, r_{F_n})`
-            - `core`: Forward accepts dimension reduced tensors as
+            - `'core'`: Forward accepts dimension reduced tensors as
                 input covariates. The inputs must have dimensions `(n_samples,
                 r_{F_1}`,...,r_{F_N}}.
-            - `task_dirs`: Forward accepts tensors containing the inner
+            - `'task_dirs'`: Forward accepts tensors containing the inner
                 products of input covariates :math:`<\mathcal{X}, \mathcal{C}
                 \times_{M+1} \mathbf{U}_1 \cdots \times_{M+N} \mathbf{U}_M`.
                 The inputs must be of dimension `(n_samples, *task_ranks)`.
@@ -446,6 +537,49 @@ class TuckerRegressor(nn.Module):
                 mode_n = self._active_dir_n
             )
 
+    def functional_core(self, core, x):
+        # TODO: Add docstring
+        b_dim = x.ndim - self._N
+        if b_dim == 0:
+            n_samp = 1
+        elif b_dim == 1:
+            n_samp = x.shape[0]
+        else:
+            raise ValueError("Input covariate order incompatible")
+        
+        # Reshape it to have dimensions with [n_samp, 1,...,1, *feature_ranks]
+        # x_v = x.view([n_samp] + [1]*self._M + list(self.feature_ranks))
+        eta = torch.tensordot(x, core,
+                dims=(
+                    [n for n in range(b_dim, b_dim+self._N)],
+                    [n for n in range(self._M, self.order)]
+                )
+                )
+        if self._full_rank_task:
+            return eta
+        else:
+            return mmp(eta, self.Vs,
+                       modes=[m+1 for m in range(b_dim, b_dim+self._M)],
+                       transpose=False)
+
+    def functional_feature_dir_n_full(self, U, x):
+        # TODO: Add docstring
+        if x.ndim == self._M+2:
+            n_samp = 1
+        elif x.ndim == self._M+3:
+            n_samp = x.shape[0]
+        else:
+            raise ValueError("Input covariate order incompatible")
+        # Reshape it to have dimensions with [n_samp, *task_ranks, F_n, r_{F_n}]
+        # n = self._active_dir_n
+        tdims = list(self.task_ranks)
+        fn, r_fn = U.shape[0], U.shape[1]
+        x_v = x.view([n_samp] + tdims + [fn, r_fn])
+        eta = torch.tensordot(x_v, U, dims=2)
+        if self._full_rank_task:
+            return eta
+        else:
+            return mmp(eta, self.Vs, modes=self.out_prod_dims, transpose=False)
 
     @property
     def covariant_degree(self):

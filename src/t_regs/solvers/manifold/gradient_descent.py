@@ -39,32 +39,32 @@ class RiemmannianGradientDescent:
 
     Parameters
     ----------
-        line_searcher: LineSearcher | None
-            Line searching algorithm used for the descent step size. Defaults to
-            the default parameters of backtracking line search.
-        step_size: float | None = None
-            Fixed step size for the retraction step.
-        max_it : int = 1000
-            Maximum number of iterations the algorithm is allowed to run for
-        min_gradient_norm : float = 1e-8
-            Termination threshold based on the norm of the riemmannian gradient
-        max_time : float | None = None
-            Upper bound on run time of the solver in seconds.
-        max_function_evals : int = 5000
-            Maximum number of function evaluations allowed for the algorithm.
-        min_step_size : float = 0
-            Termination threshold used with line search algorithm.
-        verbosity : int = 0
-            Level of verbosity of the algorithm
-        log_verbosity : int = 1
-            Level of verbosity for algorithm logging.
-                0: No logging performed
-                1: Everything but the point is logged
-                2: Algorithm iterations are also saved.
-        report_period : int = 1
-            Controls how often the results are reported as algorithm iterates.
-        logging_period : int = 1
-            Controls how often the results are logged.
+    line_searcher: ArmijoPointSearch | None
+        Line searching algorithm used for the descent step size. Defaults to
+        the default parameters of backtracking line search.
+    step_size: float | None = None
+        Fixed step size for the retraction step.
+    max_it : int = 1000
+        Maximum number of iterations the algorithm is allowed to run for
+    min_gradient_norm : float = 1e-8
+        Termination threshold based on the norm of the riemmannian gradient
+    max_time : float | None = None
+        Upper bound on run time of the solver in seconds.
+    max_function_evals : int = 5000
+        Maximum number of function evaluations allowed for the algorithm.
+    min_step_size : float = 0
+        Termination threshold used with line search algorithm.
+    verbosity : int = 0
+        Level of verbosity of the algorithm
+    log_verbosity : int = 1
+        Level of verbosity for algorithm logging.
+            0: No logging performed
+            1: Everything but the point is logged
+            2: Algorithm iterations are also saved.
+    report_period : int = 1
+        Controls how often the results are reported as algorithm iterates.
+    logging_period : int = 1
+        Controls how often the results are logged.
     """
 
     def __init__(self,
@@ -142,8 +142,9 @@ class RiemmannianGradientDescent:
             column_printer = printer.ColumnPrinter(
                 columns=[
                     ("Iteration", f"{iteration_format_length}d"),
-                    ("Cost", "+.5e"),
-                    ("Gradient norm", ".5e"),
+                    ("Cost", "+.12e"),
+                    ("Gradient norm", ".6e"),
+                    ('Step size', ".4e"),
                 ]
             )
         else:
@@ -181,9 +182,13 @@ class RiemmannianGradientDescent:
                                 problem, x, descend_dir, f_x, descend_dir,
                                 )
                     step_size = search_result.step_size
-                    x = search_result.x_new
+                    x.copy_(search_result.x_new)
                     step_count = search_result.step_count
+                    f_x = search_result.f_x_new
                     descend_dir = -search_result.new_grad_f_x
+                    # Armijo Point Search already projects the gradient to
+                    # tangent space and calculates the riemannian gradient
+                    grad_norm = manifold.norm(x, descend_dir, project=False)
                     log = {'step_size': step_size, 'step_count': step_count}
                 else:
                     step_size, x, step_count = self.line_searcher.search(
@@ -197,7 +202,7 @@ class RiemmannianGradientDescent:
                 func_evals += step_count
             else:
                 step_size = self.step_size
-                x = manifold.retract(x, step_size*descend_dir)
+                x.copy_(manifold.retract(x, step_size*descend_dir))
 
                 f_x = problem.objective(x, backward_pass=True)
                 nabla_x = problem.grad(x, repeat_forward=False)
@@ -205,7 +210,7 @@ class RiemmannianGradientDescent:
                 descend_dir = -manifold.project(x, nabla_x)
                 grad_norm = manifold.norm(x, descend_dir, project=False)
 
-            column_printer.print_row([it, f_x, grad_norm])
+            column_printer.print_row([it, f_x, grad_norm, step_size])
             self._add_log_entry(start_time, it, x, f_x, **log)
 
             stopping_criterion = self._check_stopping_criteria(start_time,
