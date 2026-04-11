@@ -360,6 +360,7 @@ class TuckerRegressor(nn.Module):
             pass
 
     def _fw_full(self, x):
+        b_dim = x.ndim - self._N
         if x.ndim == self._N:
             n_samp = 1
         elif x.ndim == self._N+1:
@@ -367,18 +368,31 @@ class TuckerRegressor(nn.Module):
         else:
             raise ValueError("Input covariate order incompatible")
         # Reshape it to have dimensions with [n_samp, 1,...,1, *feature_dims]
-        x_v = x.view([n_samp] + [1]*self._M + list(self.feature_dims))
+        # x_v = x.view([n_samp] + [1]*self._M + list(self.feature_dims))
 
         # Multiply x_v in the feature modes with U_m^T
-        eta = mmp(x_v, self.Us, modes=self.in_prod_dims, transpose=True)
+        x_v = mmp(x,
+                  self.Us,
+                  modes=[n+1 for n in range(b_dim, b_dim + self._N)],
+                  transpose=True)
 
-        eta = torch.tensordot(eta, self.core,
-                              dims=([i-1 for i in self.in_prod_dims],
-                                    [i+self._M for i in range(self._N)]))
+        eta = torch.tensordot(x_v, self.core,
+                dims=(
+                    [n for n in range(b_dim, b_dim+self._N)],
+                    [n for n in range(self._M, self.order)]
+                )
+                )
+        # eta = torch.tensordot(eta, self.core,
+        #                       dims=([i-1 for i in self.in_prod_dims],
+        #                             [i+self._M for i in range(self._N)]))
         if self._full_rank_task:
             return eta
         else:
-            return mmp(eta, self.Vs, modes=self.out_prod_dims, transpose=False)
+            # TODO: This line may be wrong.
+            return mmp(eta,
+                       self.Vs,
+                       modes=[m+1 for m in range(b_dim, b_dim+self._M)],
+                       transpose=False)
 
     def _fw_core(self, x):
         b_dim = x.ndim - self._N
