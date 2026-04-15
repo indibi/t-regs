@@ -70,7 +70,7 @@ class Steifel(Manifold):
 
     def random_point(self, generator=None):
         point = torch.randn((self._n, self._p),
-                           generator=generator,
+                           generator=generator, # TODO: Fix this nonsense.
                            dtype=self.dtype,
                            device=self.device)
         Q, _ = torch.linalg.qr(point) # pylint: disable=not-callable,invalid-name

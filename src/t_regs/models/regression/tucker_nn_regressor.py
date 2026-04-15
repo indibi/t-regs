@@ -51,7 +51,7 @@ class TuckerCovariateTransform:
                            'task_dirs']
     def __init__(self,
                  transform_type:str,
-                 Us: Sequence[torch.Tensor],
+                 Us: Sequence[torch.Tensor],    # pylint: disable=invalid-name
                  core: torch.Tensor,
                  mode_n: Optional[int] = None
         ):
@@ -60,14 +60,14 @@ class TuckerCovariateTransform:
         else:
             raise ValueError(
                 f"Covariate transform type {transform_type} is not known.")
-        self.Us = [ U.detach().to('cpu').pin_memory() for U in Us]
+        self.Us = [ U.detach().to('cpu').pin_memory() for U in Us]  # pylint: disable=invalid-name
         # for U in self.Us:
         #     U.requires_grad = False
         self.core = core.detach().to('cpu').pin_memory()
         # self.core.requires_grad = False
         self.mode_n = mode_n
-        self._N = len(Us)
-        self._M = core.ndim - self._N
+        self._N = len(Us)   # pylint: disable=invalid-name
+        self._M = core.ndim - self._N   # pylint: disable=invalid-name
         self.order = core.ndim
         self.in_prod_modes = [i+1 for i in range(self._N)]
         self._in_prod_modes_b = [i+1 for i in self.in_prod_modes]
@@ -213,8 +213,8 @@ class TuckerRegressor(nn.Module):
         self.feature_ranks = tuple(feature_ranks)
         self.task_dims = tuple(task_dims)
         self.task_ranks = tuple(task_ranks)
-        self._M = len(self.task_dims)
-        self._N = len(self.feature_dims)
+        self._M = len(self.task_dims)   # pylint: disable=invalid-name
+        self._N = len(self.feature_dims)    # pylint: disable=invalid-name
         self.dims = self.task_dims + self.feature_dims
         self.ranks = self.task_ranks + self.feature_ranks
         self.order = self._M + self._N
@@ -248,7 +248,7 @@ class TuckerRegressor(nn.Module):
 
         self._full_rank_task = self.task_dims == self.task_ranks
         if self._full_rank_task:
-            self.Vs = None
+            self.Vs = None  # pylint: disable=invalid-name
         else:
             if task_directions is None:
                 task_directions = [None for _ in range(self._M)]
@@ -266,7 +266,7 @@ class TuckerRegressor(nn.Module):
 
     @torch.no_grad()
     def predict(self, # pylint: disable=unused-argument
-            X:torch.Tensor,
+            X:torch.Tensor, # pylint: disable=invalid-name
             y=None,
             fw_mode='full',
             mode_n=None,
@@ -287,7 +287,7 @@ class TuckerRegressor(nn.Module):
         return self.inverse_link(eta)
 
     @torch.no_grad()
-    def score(self, pred:torch.Tensor, Y:torch.Tensor) -> float:
+    def score(self, pred:torch.Tensor, Y:torch.Tensor) -> float:    # pylint: disable=invalid-name
         # TODO: Add docstring and perhaps other options for scores.
         if self.regression_type == 'linear':
             ss_total = torch.sum((Y - torch.mean(Y, dim=0))**2)
@@ -326,7 +326,7 @@ class TuckerRegressor(nn.Module):
 
     def loss_fn(self,
                 eta: torch.Tensor,
-                Y: torch.Tensor,
+                Y: torch.Tensor,    # pylint: disable=invalid-name
                 weights: Optional[torch.Tensor]=None) -> torch.Tensor:
         """Loss function corresponding to the Generalized Linear Model"""
         # TODO: improve the docstring of the loss functions.
@@ -402,7 +402,7 @@ class TuckerRegressor(nn.Module):
             n_samp = x.shape[0]
         else:
             raise ValueError("Input covariate order incompatible")
-        
+
         # Reshape it to have dimensions with [n_samp, 1,...,1, *feature_ranks]
         # x_v = x.view([n_samp] + [1]*self._M + list(self.feature_ranks))
         eta = torch.tensordot(x, self.core,
@@ -502,7 +502,7 @@ class TuckerRegressor(nn.Module):
                 (f"forward_mode:{forward_mode} is not recognized "
                  f"valid options are among {self.__forward_modes}")
             )
-        if ((forward_mode is not self._forward_mode) or 
+        if ((forward_mode is not self._forward_mode) or
                 (dir_n !=self._active_dir_n)
                 ):
             self._forward_mode = forward_mode
@@ -560,7 +560,6 @@ class TuckerRegressor(nn.Module):
             n_samp = x.shape[0]
         else:
             raise ValueError("Input covariate order incompatible")
-        
         # Reshape it to have dimensions with [n_samp, 1,...,1, *feature_ranks]
         # x_v = x.view([n_samp] + [1]*self._M + list(self.feature_ranks))
         eta = torch.tensordot(x, core,
@@ -576,7 +575,7 @@ class TuckerRegressor(nn.Module):
                        modes=[m+1 for m in range(b_dim, b_dim+self._M)],
                        transpose=False)
 
-    def functional_feature_dir_n_full(self, U, x):
+    def functional_feature_dir_n_full(self, U, x): # pylint: disable=invalid-name
         # TODO: Add docstring
         if x.ndim == self._M+2:
             n_samp = 1
