@@ -26,7 +26,7 @@ import torch
 import torch.linalg as LA
 
 from ...manifolds import Manifold
-from .problem import Problem
+# from .problem import Problem
 from .minimax_problem import MinimaxProblemPoint, MinimaxProblem
 
 from ...utils import printer
@@ -127,7 +127,7 @@ class RADA_RGD:   # pylint: disable=invalid-name
         verbosity: int = 0,
         log_verbosity: int = 1,
         report_period: int = 1,
-        logging_period: int = 1,
+        logging_period: int = None,
         ):
         self.R = R # pylint: disable=invalid-name
         self.eta = eta
@@ -136,8 +136,8 @@ class RADA_RGD:   # pylint: disable=invalid-name
         self.Tk = Tk    # py-lint: disable=invalid-name
         self.max_line_search = max_line_search
         self.beta1 = beta1
-        self.lda = eps/(2*R)
-        self.nu = lambda beta_k: 2*(R**2)*beta_k
+        self.lda = eps/(2*R) if self.R>0 else 0.0
+        self.nu = lambda beta_k: 2*(self.R**2)*beta_k
         self.rho = rho
         self.tau_1 = tau_1
         self.tau_2 = tau_2
@@ -152,7 +152,8 @@ class RADA_RGD:   # pylint: disable=invalid-name
         self.verbosity = verbosity
         self.log_verbosity = log_verbosity
         self.report_period = report_period
-        self.logging_period = logging_period
+        self.logging_period = max(
+            1, max_it//100) if logging_period is None else logging_period
         self.log = None
 
     def solve(self,
@@ -168,16 +169,16 @@ class RADA_RGD:   # pylint: disable=invalid-name
         ----------
         problem: :class:`MinimaxProblem`
             MinimaxProblem class defining the manifold optimization problem.
-        init_point: Optional[MinimaxProblemPoint]
-            Inital point to start the RADA optimization. Defaults to random
-            initialization if not provided.
         x0:
             Initial :math:`x` value to begin the optimization. Defaults to
             random initialization with `seed`.
         y0:
             Initial :math:`y` value to begin the optimization. Defaults to
             random initialization with `seed`.
-        seed:
+        init_point: Optional[MinimaxProblemPoint]
+            Inital point to start the RADA optimization. Defaults to random
+            initialization if not provided.
+        seed: Optional[int | torch.Generator] = None
             Initialization seed for the algorithm.
 
         Returns
@@ -200,7 +201,16 @@ class RADA_RGD:   # pylint: disable=invalid-name
             x0 = init_point.x
             y0 = init_point.y
         if x0 is None:
-            x = manifold.random_point() # TODO: Deal with the seed
+            if isinstance(seed, int):
+                rng = torch.Generator(device=manifold.device)
+                rng.manual_seed(seed)
+            elif isinstance(seed, torch.Generator):
+                pass
+            else:
+                raise TypeError(
+                    "`seed` must be an instance of `int` or a `torch.Generator`"
+                    )
+            x = manifold.random_point(generator=rng)
             x.requires_grad_(True)
         else:
             x = x0
@@ -246,7 +256,7 @@ class RADA_RGD:   # pylint: disable=invalid-name
         c_val = phi_k_xkt
         row=[k, t, f_xkt, in_prod, phi_k_xkt, grad_norm, del_k, beta_k, nu_k, ss]
         column_printer.print_row(row)
-        self._add_log_entry(k, x_kt, phi_k_xkt)
+        self._add_log_entry(k, x_kt, float(phi_k_xkt))
         # ("f(x_kt)", "+.12e"),
         # ("<A(x_kt), y_k>", "+.8e"),
         # ("Φ_k(x_kt)", "+.12e"),
@@ -343,6 +353,7 @@ class RADA_RGD:   # pylint: disable=invalid-name
                     desc_dir = -grad_phi_k_xkt # Descent direction
 
                     grad_norm = manifold.norm(x, grad_phi_k_xkt, project=False)
+                    del_norm = LA.vector_norm(y_kp1 - problem.prox_h(y_kp1 + Ax)) # pylint: disable=not-callable
                     del_k = torch.max(
                         ((self.lda + beta_k)*y_kp1 - beta_k*y_k).abs()
                         )
@@ -363,10 +374,11 @@ class RADA_RGD:   # pylint: disable=invalid-name
                     ss = next_step_size
 
                 row=[k, t, f_xkt, in_prod, phi_k_xkt,
-                    grad_norm, del_k, beta_k, nu_k, ss, armijo_ss, step_count]
+                    grad_norm, del_norm,
+                    del_k, beta_k, nu_k, ss, armijo_ss, step_count]
                 if (self.verbosity >= 2 and t==self.Tk) or (self.verbosity>=3):
                     column_printer.print_row(row)
-                self._add_log_entry(k, x_kt, phi_k_xkt)
+                self._add_log_entry(k, x_kt, float(phi_k_xkt))
 
             # TODO: Add functionality to track and return the best result
             # based on minimization formulation of the optimization.
@@ -374,6 +386,7 @@ class RADA_RGD:   # pylint: disable=invalid-name
                 start_time,
                 k,
                 grad_norm,
+                del_norm,
                 ss,
                 func_evals
                 )
@@ -415,6 +428,7 @@ class RADA_RGD:   # pylint: disable=invalid-name
             start_time,
             iteration,
             gradient_norm,
+            del_norm,
             step_size,
             function_evaluations
             ) -> str:
@@ -425,9 +439,9 @@ class RADA_RGD:   # pylint: disable=invalid-name
         elif iteration>= self.max_it:
             reason = ("Terminated - maximum number of iterations reached after "
                       f"{run_time:.3f} seconds.")
-        elif gradient_norm <= self.min_gradient_norm:
+        elif max([del_norm,gradient_norm]) <= self.min_gradient_norm:
             reason = (
-                f"Terminated - min grad norm reached after {iteration} "
+                f"Terminated - eps-RGS point reached after {iteration} "
                 f"iterations, {run_time:.3f} seconds."
             )
         elif (step_size < self.min_step_size) or (step_size ==0):
@@ -471,6 +485,7 @@ class RADA_RGD:   # pylint: disable=invalid-name
                 ("<A(x), y>", "+.8e"),
                 ("Φ_k(x)", "+.12e"),
                 ("||grad Φ_k(x)||", ".6e"),
+                ("||y - prox_h(y + Ax)||", ".6e"),
                 ("δ_k", ".5e"),
                 ("β_k", ".5e"),
                 ("ν_k", ".5e"),
@@ -520,3 +535,9 @@ class RADA_RGD:   # pylint: disable=invalid-name
             'zeta_BB_max': self.zeta_BB_max,
             'zeta_BB_min': self.zeta_BB_min,
         }
+
+    # def get_init_cfg(self) -> dict[str, Any]:
+    #     """Get RADA-RGD Initialization settings."""
+    #     return {
+
+    #     }

@@ -29,7 +29,7 @@ def generate_low_rank_data(dim, ranks, seed=None, return_factors=False):
     rng = np.random.default_rng(seed)
     n = len(dim)
     C = rng.normal(0,1,ranks)
-    U = [qmult(dim[i])[:,:ranks[i]] for i in range(n)]
+    U = [qmult(dim[i], seed=seed+i)[:,:ranks[i]] for i in range(n)]
     dims = [i+1 for i in range(n)]
    
     if return_factors:
@@ -41,7 +41,11 @@ def generate_sparse_low_tucker_rank_tensor(dims: tuple[int],
                                     ranks: tuple[int],
                                     cardinalities: tuple[int],
                                     amp_factor_entries:float =0.5,
-                                    seed: int = 0) -> np.ndarray:
+                                    expanded: bool= False,
+                                    seed: int = 0,
+                                    return_factors=False,
+                                    ) -> np.ndarray:
+    # TODO: Add docstring for expanded option.
     """Generate low-tucker rank tensor with sparse factors.
 
     Based on the experiment synthetic data generation procedure in [1].
@@ -53,6 +57,8 @@ def generate_sparse_low_tucker_rank_tensor(dims: tuple[int],
             Ranks of the resulting tensor.
         cardinalities : tuple[int]
             Cardinality (number of non-zeros) of the factor matrices columns.
+        expanded: bool
+            Alternative way to create sparse low-tucker rank factors.
         amp_factor_entries : float
             The amplitude of the non-zero entries in  the non-zero entries of
             the factor matrices. Defaults to 0.5.
@@ -78,20 +84,36 @@ def generate_sparse_low_tucker_rank_tensor(dims: tuple[int],
     Us = []
     # C = rng.uniform(0,1, size=ranks)
     C = rng.normal(0, np.prod(ranks), size=ranks)
-    
+    i = 0
     for dim, rank, s in zip(dims, ranks, cardinalities):
         U = np.zeros((dim, rank))
-        for r in range(rank):
-            zero_indices = rng.choice(dim, size=s, replace=False)
-            signs = rng.choice([-1, 1], size=s)
-            U[zero_indices, r] = signs*(amp_factor_entries
-                                        + np.abs(
-                                            rng.standard_normal(size=s)
+        if expanded:
+            if rank > s:
+                ValueError(
+                    "Cardinality of the non-zero features cannot be smaller than"
+                    f" the rank: cardinalities={cardinalities}, ranks:{ranks}"
+                    )
+            non_zero_indices = rng.choice(dim, size=s, replace=False)
+            U_b = qmult(s, seed=seed+i)[:,:rank]
+            i +=1
+            U[non_zero_indices, :] = U_b
+        else:
+            # U_support = np.zeros((dim, rank))
+            for r in range(rank):
+                non_zero_indices = rng.choice(dim, size=s, replace=False)
+                signs = rng.choice([-1, 1], size=s)
+                U[non_zero_indices, r] = signs*(amp_factor_entries
+                                            + np.abs(
+                                                rng.standard_normal(size=s)
+                                                )
                                             )
-                                        )
+                # U_support[non_zero_indices,r] = 1
         Us.append(U)
     B = multi_mode_product(C, Us, modes=list(range(1, N+1)))
-    return B
+    if return_factors:
+        return B, C, Us
+    else:
+        return B
 
 def generate_smooth_low_tucker_rank_tensor(
                                     Ls: Sequence[np.array],

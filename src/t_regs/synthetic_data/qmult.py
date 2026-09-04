@@ -33,6 +33,7 @@ def qmult(A, seed=None):
         B (np.array): Orthonormal array or the result of pre-multiplication of A
         with on orthonormal array.
     """
+    rng = np.random.default_rng(seed=seed)
     if type(A)== type(np.zeros(2)):
         n = A.shape[0]
     elif type(A)==type(4):
@@ -43,7 +44,7 @@ def qmult(A, seed=None):
     d = np.zeros((n, 1))
     for k in range(n-1, 0, -1):
         # Generate random Householder transformation.
-        x = np.random.randn(n-k+1, 1)
+        x = rng.standard_normal((n-k+1, 1))
         s = np.linalg.norm(x)
         sgn = mysign(x[0])
         s = sgn*s
@@ -56,7 +57,7 @@ def qmult(A, seed=None):
     # Tidy up signs.
     for i in range(n-1):
         A[i, :] = d[i]*A[i, :]
-    A[n-1, :] = A[n-1, :] * mysign(np.random.randn())
+    A[n-1, :] = A[n-1, :] * mysign(rng.standard_normal())
     B = A
     return B
 

@@ -18,7 +18,8 @@ def generate_tensor_regression_predictors(dims : tuple[int],
             Number of samples to generate.
         scheme : str
             Scheme to use for generating the predictors. Options are:
-            'simple' - Entries of `X` are drawn from N(0, 1/n_samples).
+            'simple' - Entries of `X` are drawn from N(0, 1).
+            'scaled_simple' - Entries of `X` are drawn from N(0, 1/n_samples).
         seed : int
             Random seed for reproducibility.
         **kwargs
@@ -101,7 +102,7 @@ def generate_tensor_regression_response(X: np.ndarray,
         raise NotImplementedError("Weighted kernel not implemented yet.")
     else:
         raise ValueError(f"Unknown kernel type {kernel}.")
-    
+
     if noise_type == 'gaussian':
         noise_std = kwargs.get('noise_std', 1.0)
         noise = noise_std* rng.normal(loc=0.0,
@@ -121,6 +122,6 @@ def generate_tensor_regression_response(X: np.ndarray,
         probs = torch.sigmoid(mu_noiseless)
         Y = torch.bernoulli(probs, generator=torch_rng).numpy()
     else:
-        raise ValueError(f"Unknown regression type {regression}.")
+        raise ValueError(f"Unknown regression type {regression_type}.")
 
     return Y, mu_noiseless
