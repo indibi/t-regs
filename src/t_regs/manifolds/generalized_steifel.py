@@ -71,6 +71,11 @@ class GeneralizedSteifel(Manifold):
         size = torch.Size((n,p))
         super().__init__(name, dimension, size, **kwargs)
 
+        self.__G_eigvals = None # pylint: disable=invalid-name
+        self.__G_eigvecs = None # pylint: disable=invalid-name
+        self.__sqrt_G = None # pylint: disable=invalid-name
+        self.__inv_sqrt_G = None # pylint: disable=invalid-name
+
 
     def inner_product(self,
                     point: torch.Tensor,
@@ -96,16 +101,19 @@ class GeneralizedSteifel(Manifold):
     def project(self,
                 point: torch.Tensor,
                 vector: torch.Tensor) -> torch.Tensor:
-        X = point
-        Z = vector
-        XTGZ = X.T @ self._G @ Z
-        sym_XTGZ = 0.5 * (XTGZ + XTGZ.T)
-        projected_vector = Z - X @ sym_XTGZ
+        X = point   # pylint: disable=invalid-name
+        Z = vector  # pylint: disable=invalid-name
+        XTGZ = X.T @ self._G @ Z    # pylint: disable=invalid-name
+        sym_XTGZ = 0.5 * (XTGZ + XTGZ.T)    # pylint: disable=invalid-name
+        projected_vector = Z - X @ sym_XTGZ # pylint: disable=invalid-name
         return projected_vector
 
 
-    def random_point(self, generator=None, iterations: int = 5,) -> torch.Tensor:
-        Xk = torch.randn((self._n, self._p),
+    def random_point(
+            self,
+            generator:torch.Generator=None,
+            iterations: int = 5) -> torch.Tensor:
+        Xk = torch.randn((self._n, self._p),    # pylint: disable=invalid-name
                                generator=generator,
                                dtype=self.dtype,
                                device=self.device)
@@ -115,18 +123,18 @@ class GeneralizedSteifel(Manifold):
                                device=self.device)
         for _ in range(iterations):
             tangent = self.project(Xk, tangent)
-            Xk = self.retract(Xk, tangent)
+            Xk = self.retract(Xk, tangent)  # pylint: disable=invalid-name
         return Xk
 
 
-    def random_tangent(self, point, generator=None):
+    def random_tangent(self,point: torch.Tensor, generator:torch.Generator=None):
         vector = torch.randn((self._n, self._p),
                            generator=generator,
                            dtype=self.dtype,
                            device=self.device)
         return self.project(point, vector)
 
-    def retract(self, 
+    def retract(self,
                 point: torch.Tensor,
                 vector: torch.Tensor) -> torch.Tensor:
         return self._retraction(point, vector)
@@ -135,10 +143,10 @@ class GeneralizedSteifel(Manifold):
     def _retract_qr_with_inv_R(self,    # pylint: disable=invalid-name
                              point: torch.Tensor,
                              vector: torch.Tensor) -> torch.Tensor:
-        Y = point + vector
-        Z = Y.T @ self._G @ Y
-        R = torch.linalg.cholesky(Z, upper=True)    # pylint: disable=not-callable
-        R_inv = torch.linalg.inv(R)    # pylint: disable=not-callable
+        Y = point + vector  # pylint: disable=invalid-name
+        Z = Y.T @ self._G @ Y   # pylint: disable=invalid-name
+        R = torch.linalg.cholesky(Z, upper=True)    # pylint: disable=not-callable,invalid-name
+        R_inv = torch.linalg.inv(R)    # pylint: disable=not-callable,invalid-name
         return Y @ R_inv
         # return Y
 
@@ -146,8 +154,10 @@ class GeneralizedSteifel(Manifold):
     def _retract_qr_with_inv_sqrt_G(self,  # pylint: disable=invalid-name
                              point: torch.Tensor,
                              vector: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError(("Retraction based on QR with inv sqrt G"
-                                  " is not yet implemented"))
+        Y = point + vector  # pylint: disable=invalid-name
+        Y = self.sqrt_G @ Y # pylint: disable=invalid-name
+        Q, _ = torch.linalg.qr(Y) # pylint: disable=not-callable,invalid-name
+        return self.inv_sqrt_G @ Q
 
 
     def tangent_infeasibility(self,
@@ -160,8 +170,8 @@ class GeneralizedSteifel(Manifold):
         
         where :math:`X` is the input `point` and :math:`V` is the input `vector`
         """
-        XTGV = point.T @ self._G @ vector
-        sym_XTGV = XTGV + XTGV.T
+        XTGV = point.T @ self._G @ vector   # pylint: disable=invalid-name
+        sym_XTGV = XTGV + XTGV.T    # pylint: disable=invalid-name
         frob_norm_num = torch.linalg.norm(sym_XTGV)  # pylint: disable=not-callable
         frob_norm_denom = torch.linalg.norm(XTGV)  # pylint: disable=not-callable
         return frob_norm_num / frob_norm_denom
@@ -172,8 +182,8 @@ class GeneralizedSteifel(Manifold):
         
         where :math:`X` is the input `point`.
         """
-        XTGX = point.T @ self._G @ point
-        I_p = torch.eye(self._p, dtype=self.dtype, device=self.device)
+        XTGX = point.T @ self._G @ point    # pylint: disable=invalid-name
+        I_p = torch.eye(self._p, dtype=self.dtype, device=self.device)  # pylint: disable=invalid-name
         # return XTGX - I_p
         frob_norm = torch.linalg.norm(XTGX - I_p, ord='fro')  # pylint: disable=not-callable
         denom = self._p
@@ -191,3 +201,34 @@ class GeneralizedSteifel(Manifold):
             'G': self._G,
             'retraction': self.__retraction,
         }
+
+    def __set_up_inv_G(self): # pylint: disable=invalid-name
+        eigvals, eigvecs = torch.linalg.eigh(self._G) # pylint: disable=not-callable
+        self.__G_eigvals = eigvals
+        self.__G_eigvecs = eigvecs
+        self.__sqrt_G = eigvecs @ torch.diag_embed(eigvecs**0.5) @ eigvecs.T
+        self.__inv_sqrt_G = eigvecs@torch.diag_embed(1/eigvecs**0.5) @eigvecs.T
+
+    @property
+    def sqrt_G(self):   # pylint: disable=invalid-name
+        if self.__sqrt_G is None:
+            self.__set_up_inv_G()
+        return self.__sqrt_G
+
+    @property
+    def inv_sqrt_G(self):   # pylint: disable=invalid-name
+        if self.__inv_sqrt_G is None:
+            self.__set_up_inv_G()
+        return self.__inv_sqrt_G
+
+    @property
+    def G_eigvals(self):    # pylint: disable=invalid-name
+        if self.__G_eigvals is None:
+            self.__set_up_inv_G()
+        return self.__G_eigvals
+
+    @property
+    def G_eigvecs(self):    # pylint: disable=invalid-name
+        if self.__G_eigvecs is None:
+            self.__set_up_inv_G()
+        return self.__G_eigvecs

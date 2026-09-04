@@ -159,6 +159,10 @@ def generate_temporal_anomaly(x, amplitude, num_of_anomalies, anomaly_duration=4
             amp = 2*(rng.binomial(n=1,p=0.5)-0.5)*amplitude
         elif distribution=='uniform':
             amp  = rng.uniform(-amplitude,+amplitude)
+        else:
+            raise ValueError(
+                f"{distribution} is not recognized for anomaly generation"
+                )
         anomaly_labels[np.max((0,t-N//2)):np.min((M,t+N-N//2)),l] = True
         anomaly[np.max((0, t-N//2)):np.min((M, t-N//2+N)),l] += \
             amp*w[-np.min((0, t-N//2)): N- np.max((0, t+N-N//2-M))]    
@@ -271,6 +275,10 @@ def generate_spatio_temporal_anomaly(dims, G, num_anomalies,amplitude=1, duratio
             amp = 2*(rng.binomial(n=1,p=0.5)-0.5)*amplitude
         elif distribution=='uniform':
             amp  = rng.uniform(amplitude/2,+amplitude)*2*(rng.binomial(n=1,p=0.5)-0.5) # rng.uniform(-amplitude,+amplitude)#
+        else:
+            raise ValueError(
+                f"{distribution} is not recognized for anomaly generation"
+                )
         t = center_idxs[i,-1]  # Center of the anomaly in time
         el = center_idxs[i,-2] # Center of the anomaly in space
         # Generate a local anomaly
