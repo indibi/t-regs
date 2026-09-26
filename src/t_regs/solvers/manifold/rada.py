@@ -34,6 +34,9 @@ from ...utils import printer
 @dataclass
 class RADA_RGD_Result:  # pylint: disable=invalid-name
     point: MinimaxProblemPoint
+    fx_best: float
+    gx_best: float
+    f_g_x_best: float
     phi_k_x: float
     iterations: int
     stopping_criterion: str
@@ -89,6 +92,15 @@ class RADA_RGD:   # pylint: disable=invalid-name
         Maximum allowed time for the algorithm to run in seconds.
     max_function_evals:
         Maximum function evaluations the algorithm is allowed to perform
+    eps_floor:
+        Limits the eps-RGS convergence criteria to not shrink below it.
+    eps_anneal_factor:
+        If `.solve()` does not improve on the initial point, shrink eps.
+    max_it_ceil: 
+        Limits the maximum number of iterations to a hard ceiling to if the
+        for the on subsequent calls to `.solve()`. Default: `int(max_it*20)`.
+    max_it_growth:
+        If `.solve()` does not improve on the initial point, grow `max_it`.
     min_step_size:
         Algorithm termination criteria based on the latest step size taken.
     verbosity:
@@ -118,11 +130,15 @@ class RADA_RGD:   # pylint: disable=invalid-name
         tau_1: float = 0.999,
         tau_2: float = 0.9,
         zeta: float = 1.0,
-        zeta_BB_max: float = 1e6,
-        zeta_BB_min: float = 1e-8,
+        zeta_BB_max: float = 1e12,
+        zeta_BB_min: float = 1e-12,
         eps : float = 1e-8,
         max_time: float | None = None,
-        max_function_evals: int = 5000,
+        max_function_evals: int = 40000*10,
+        eps_floor: float = 1e-10,
+        eps_anneal_factor: float = 0.1,
+        max_it_ceil: int = 40000,
+        max_it_growth: float = 4,
         min_step_size:float = 0,
         verbosity: int = 0,
         log_verbosity: int = 1,
@@ -155,6 +171,11 @@ class RADA_RGD:   # pylint: disable=invalid-name
         self.logging_period = max(
             1, max_it//100) if logging_period is None else logging_period
         self.log = None
+
+        self.eps_floor = eps_floor
+        self.eps_anneal_factor = eps_anneal_factor
+        self.max_it_ceil = max_it_ceil if max_it_ceil is not None else int(max_it*20)
+        self.max_it_growth = max_it_growth
 
     def solve(self,
         problem: MinimaxProblem,
@@ -191,7 +212,7 @@ class RADA_RGD:   # pylint: disable=invalid-name
         column_printer = self._initialize_column_printer()
         column_printer.print_header()
 
-
+        improved = False
         self._initialize_log(run_params={'seed': seed})
 
         k = 0
@@ -221,11 +242,11 @@ class RADA_RGD:   # pylint: disable=invalid-name
         x_kt = x.clone().detach()
         y_k = y0.clone().detach()
 
-        if hasattr(problem, '_func_g') and problem._func_g is not None:
-            x_best = x.clone().detach()
-            y_best = y0.clone().detach()
-            fx_best = problem.func_f(x_best, backward_pass=False)
-            F_best = fx_best + problem.func_g(x)
+        x_best = x.clone().detach()
+        y_best = y0.clone().detach()
+        fx_best = problem.func_f(x_best, backward_pass=False)
+        gx_best = problem.func_g(x)
+        f_g_x_best = fx_best + gx_best
         # --------- initialize parameters ----
         with torch.no_grad():
             ss = self.zeta # Initial step size.
@@ -242,6 +263,8 @@ class RADA_RGD:   # pylint: disable=invalid-name
                 (Ax + beta_k*y_k)/(self.lda+beta_k),
                 1/(self.lda+beta_k)
                 )
+            g_xkt = problem.func_g(x_kt)
+            f_g_xkt = f_xkt + g_xkt
             # `1/(self.lda+beta_k)` is the for the h/(self.lda+beta_k) in
             # proximal operator. Has no effect if `h` is an indicator function.
 
@@ -263,18 +286,14 @@ class RADA_RGD:   # pylint: disable=invalid-name
             grad_norm = manifold.norm(x, grad_phi_k_xkt, project=False)
             del_k = torch.max(((self.lda + beta_k)*y_kp1 - beta_k*y_k).abs())
         c_val = phi_k_xkt
-        row=[k, t, f_xkt, in_prod, phi_k_xkt, grad_norm, del_k, beta_k, nu_k, ss]
+        row=[k, t, f_xkt, g_xkt, in_prod, f_g_xkt, phi_k_xkt, f_g_x_best, grad_norm, del_k, beta_k, nu_k, ss]
         column_printer.print_row(row)
-        self._add_log_entry(k, x_kt, float(phi_k_xkt))
-        # ("f(x_kt)", "+.12e"),
-        # ("<A(x_kt), y_k>", "+.8e"),
-        # ("Φ_k(x_kt)", "+.12e"),
-        # ("||grad Φ_k(x_kt)||", ".6e"),
-        # ("δ_k", ".4e"),
-        # ("β_k", ".4e"),
-        # ("ν_k", ".4e"),
-        # ("ζ_kt+1", ".6e")
-        # ("ζ_kt (Armijo)", ".6e"),
+        self._add_log_entry(start_time, k, x_kt, float(phi_k_xkt),
+                            f_g_x_best=float(f_g_x_best),
+                            fx_best=fx_best,
+                            gx_best=float(gx_best),
+                            )
+
         func_evals = 1
         # ------------------- Main iteration start ------------------------
         while True:
@@ -312,15 +331,15 @@ class RADA_RGD:   # pylint: disable=invalid-name
                     if ((phi_k_x_new - c_val <= self.c1*ss*dir_derivative)
                         or (step_count >= self.max_line_search)):
 
-                        if (hasattr(problem, '_func_g')
-                            and problem._func_g is not None):
-                            gx_new = problem.func_g(x)
-                            F = f_x_new + gx_new
-                            if F < F_best - 1e-8:
-                                F_best = F
-                                fx_best = f_x_new
-                                x_best.copy_(x_new)
-                                y_best.copy_(y_new)
+                        gx_new = problem.func_g(x)
+                        f_g_x_new = f_x_new + gx_new
+                        if f_g_x_new < f_g_x_best:# - 1e-8:
+                            f_g_x_best = f_g_x_new
+                            fx_best = f_x_new
+                            gx_best = gx_new
+                            x_best.copy_(x_new)
+                            y_best.copy_(y_new)
+                            improved = True
                         break
 
                     ss = self.eta*ss
@@ -361,6 +380,8 @@ class RADA_RGD:   # pylint: disable=invalid-name
                         (Ax + beta_k*y_k)/(self.lda+beta_k),
                         1/(self.lda+beta_k)
                         )
+                    g_xkt = problem.func_g(x_kt)
+                    f_g_xkt = f_xkt + g_xkt
                     in_prod = (Ax*y_kp1).sum()
                     h_y = problem.func_h(y_kp1)
                     phi_k_xkt = (f_xkt + in_prod - h_y
@@ -392,15 +413,18 @@ class RADA_RGD:   # pylint: disable=invalid-name
                         )
                     ss = next_step_size
 
-                row=[k, t, f_xkt, in_prod, phi_k_xkt,
+                row=[k, t, f_xkt, g_xkt, in_prod, f_g_xkt, phi_k_xkt, f_g_x_best,
                     grad_norm, del_norm,
                     del_k, beta_k, nu_k, ss, armijo_ss, step_count]
+
                 if (self.verbosity >= 2 and t==self.Tk) or (self.verbosity>=3):
                     column_printer.print_row(row)
-                self._add_log_entry(k, x_kt, float(phi_k_xkt), F_best=F_best)
+            self._add_log_entry(start_time, k, x_kt, float(phi_k_xkt),
+                f_g_x_best=float(f_g_x_best),
+                fx_best=fx_best,
+                gx_best=float(gx_best),
+                )
 
-            # TODO: Add functionality to track and return the best result
-            # based on minimization formulation of the optimization.
             stopping_criterion = self._check_stopping_criteria(
                 start_time,
                 k,
@@ -415,26 +439,52 @@ class RADA_RGD:   # pylint: disable=invalid-name
                     print("")
                 break
 
-        if hasattr(problem, '_func_g') and problem._func_g is not None:
-            point = MinimaxProblemPoint(
-                x=x_best,
-                y=y_best,
-                f_x=fx_best,
-                h_y=0,
-                in_prod= F_best - fx_best
-                )
-        else:
-            point = MinimaxProblemPoint(
-                x=x_kt,
-                y=y_kp1,
-                f_x=f_xkt,
-                h_y= h_y,
-                in_prod=in_prod
-                )
+        if not improved:
+            if stopping_criterion.startswith("Terminated - eps"):
+                if self.eps > self.eps_floor:
+                    self.eps = max(
+                        self.eps*self.eps_anneal_factor, self.eps_floor
+                        )
+                    self.lda = self.eps/(2*self.R) if self.R>0 else 0.0
+                    self.min_gradient_norm = self.eps
+                    if self.verbosity >=1:
+                        print("RADA did not improve the solution, shrinking eps")
+                else:
+                    stopping_criterion = (
+                        f"Stalled - eps-RGS point reached eps-floor with "
+                        f" no improvement."
+                      )
+                    if self.verbosity >=1:
+                        print(stopping_criterion)
+            elif stopping_criterion.startswith("Terminated - maximum"):
+                if self.max_it < self.max_it_ceil:
+                    self.max_it = min(
+                        self.max_it_ceil, int(self.max_it*self.max_it_growth)
+                        )
+                    if self.verbosity >=1:
+                        print("RADA did not improve the solution, growing max_it")
+                else:
+                    stopping_criterion = (
+                        "Stalled - maximum number of iterations reached ceiling "
+                        f"with no improvement."
+                        )
+                    if self.verbosity >=1:
+                        print(stopping_criterion)
+                
+        point = MinimaxProblemPoint(
+            x=x_best,
+            y=y_best,
+            f_x=fx_best,
+            h_y=0,
+            in_prod=None
+            )
 
         return self._return_result(
             start_time,
             point = point,
+            fx_best = fx_best,
+            gx_best = gx_best,
+            f_g_x_best = f_g_x_best,
             phi_k_x = phi_k_xkt,
             iterations = k,
             stopping_criterion = stopping_criterion,
@@ -510,8 +560,11 @@ class RADA_RGD:   # pylint: disable=invalid-name
                 ("k", f"{iteration_format_length}d"),
                 ("t", f"{iteration_format_length2}d"),
                 ("f(x)", "+.12e"),
+                ("g(x)", "+.8e"),
                 ("<A(x), y>", "+.8e"),
-                ("Φ_k(x)", "+.12e"),
+                ("f(x)+g(x)", "+.8e"),
+                ("Φ_k(x)", "+.8e"),
+                ("f(x_b)+g(x_b)", "+.8e"),
                 ("||grad Φ_k(x)||", ".6e"),
                 ("||y - prox_h(y + Ax)||", ".6e"),
                 ("δ_k", ".5e"),
@@ -526,12 +579,12 @@ class RADA_RGD:   # pylint: disable=invalid-name
             column_printer = printer.VoidPrinter()
         return column_printer
 
-    def _add_log_entry(self, iteration, point, objective, **kwargs):
+    def _add_log_entry(self, start_time, iteration, point, objective, **kwargs):
         if self.log_verbosity <=0:
             return
         if (self.logging_period !=0) and (iteration % self.logging_period ==0):
             self.log['iterations']['iteration'].append(iteration)
-            self.log['iterations']['time'].append(perf_counter())
+            self.log['iterations']['time'].append(perf_counter()-start_time)
             self.log['iterations']['objective'].append(objective)
             for key, value in kwargs.items():
                 self.log['iterations'][key].append(value)
