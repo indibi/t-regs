@@ -97,6 +97,7 @@ class MinimaxProblem:
         func_h: Callable[[torch.Tensor], torch.Tensor],
         prox_h: Callable[[torch.Tensor], torch.Tensor],
         mapping_A: Union[Callable[[torch.Tensor],torch.Tensor],torch.Tensor], # pylint: disable=invalid-name
+        func_g: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
         nabla_AT: Optional[ # pylint: disable=invalid-name
             Union[Callable[[torch.Tensor], torch.Tensor], torch.Tensor]
             ] = None,
@@ -108,6 +109,7 @@ class MinimaxProblem:
         self._prox_h = prox_h
         self._mapping_A = mapping_A # pylint: disable=invalid-name
         self._grad_f = grad_f
+        self._func_g = func_g
 
         if nabla_AT is None:
             if isinstance(mapping_A, torch.Tensor): # pylint: disable=invalid-name
@@ -200,6 +202,24 @@ class MinimaxProblem:
         else:
             return self._mapping_A(x)
 
+    @torch.no_grad()
+    def func_g(self, x: torch.Tensor) -> torch.Tensor:
+        """Evaluate non-smooth g(x)"""
+        if self._func_g is not None:
+            # Ax = self.A(x)
+            # return self._func_g(Ax)
+            return self._func_g(x)
+        else:
+            raise AttributeError(
+                "Minimax problem was not initialized with a `func_g`."
+                )
+
+    @torch.no_grad()
+    def func_F(self, x: torch.Tensor) -> torch.Tensor:
+        """Evaluate f(x) + g(x)"""
+        fx = self.func_f(x, backward_pass = False)
+        gx = self.func_g(x)
+        return fx + gx
 
     def nabla_AT(self, x:Optional[torch.Tensor]=None) -> torch.Tensor: # pylint: disable=invalid-name
         r"""The adjoint of the Jacobian of the mapping :math:`A` at :math:`x`.
@@ -215,6 +235,7 @@ class MinimaxProblem:
     def prox_h(self, y, *vargs, **kwargs) -> torch.Tensor:
         """Evaluate the proximal operator of :math:`h` at :math:`y`."""
         return self._prox_h(y, *vargs, **kwargs)
+
 
     @torch.no_grad()
     def objective(self,

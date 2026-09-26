@@ -203,11 +203,12 @@ class GeneralizedSteifel(Manifold):
         }
 
     def __set_up_inv_G(self): # pylint: disable=invalid-name
-        eigvals, eigvecs = torch.linalg.eigh(self._G) # pylint: disable=not-callable
+        G_mat = self._G.to_dense() if (self._G.is_sparse or getattr(self._G, 'is_sparse_csr', False)) else self._G
+        eigvals, eigvecs = torch.linalg.eigh(G_mat) # pylint: disable=not-callable
         self.__G_eigvals = eigvals
         self.__G_eigvecs = eigvecs
-        self.__sqrt_G = eigvecs @ torch.diag_embed(eigvecs**0.5) @ eigvecs.T
-        self.__inv_sqrt_G = eigvecs@torch.diag_embed(1/eigvecs**0.5) @eigvecs.T
+        self.__sqrt_G = eigvecs @ torch.diag_embed(eigvals**0.5) @ eigvecs.T
+        self.__inv_sqrt_G = eigvecs@torch.diag_embed(1/eigvals**0.5) @eigvecs.T
 
     @property
     def sqrt_G(self):   # pylint: disable=invalid-name

@@ -52,21 +52,31 @@ class TuckerCovariateTransform:
     def __init__(self,
                  transform_type:str,
                  Us: Sequence[torch.Tensor],    # pylint: disable=invalid-name
+                 N: int,
+                 lr_feature_modes,
                  core: torch.Tensor,
-                 mode_n: Optional[int] = None
+                 mode_n: Optional[int] = None,
+                 pin_to_cpu: bool = False,
         ):
         if transform_type in self.__transform_types__:
             self.type = transform_type
         else:
             raise ValueError(
                 f"Covariate transform type {transform_type} is not known.")
-        self.Us = [ U.detach().to('cpu').pin_memory() for U in Us]  # pylint: disable=invalid-name
+        if pin_to_cpu:
+            self.Us = [ U.detach().to('cpu').pin_memory() for U in Us]  # pylint: disable=invalid-name
+        else:
+            self.Us = [ U.detach() for U in Us]
         # for U in self.Us:
         #     U.requires_grad = False
-        self.core = core.detach().to('cpu').pin_memory()
+        if pin_to_cpu:
+            self.core = core.detach().to('cpu').pin_memory()
+        else:
+            self.core = core
         # self.core.requires_grad = False
         self.mode_n = mode_n
-        self._N = len(Us)   # pylint: disable=invalid-name
+        self.lr_feature_modes= lr_feature_modes
+        self._N = N # len(Us)   # pylint: disable=invalid-name
         self._M = core.ndim - self._N   # pylint: disable=invalid-name
         self.order = core.ndim
         self.in_prod_modes = [i+1 for i in range(self._N)]
@@ -86,25 +96,58 @@ class TuckerCovariateTransform:
     def __call__(self, x):
         """Transform the input covariates and reduce their dimensions."""
         batched = x.ndim != self._N
-        in_prod_modes = self._in_prod_modes_b if batched else self.in_prod_modes
-        skip_modes = self._skip_modes_b if batched else self.skip_modes
-        xt_dot_modes = self._xt_dot_modes_b if batched else self.xt_dot_modes
+        bdim = x.ndim - self._N
+        mode_n = self.mode_n
+        # in_prod_modes = self._in_prod_modes_b if batched else self.in_prod_modes
+        # skip_modes = self._skip_modes_b if batched else self.skip_modes
+        # xt_dot_modes = self._xt_dot_modes_b if batched else self.xt_dot_modes
         if self.type == 'core':
-            xt = mmp(x, self.Us, in_prod_modes, transpose=True)
+            # xt = mmp(x, self.Us, in_prod_modes, transpose=True)
+            xt = mmp(x, self.Us,
+                     modes=[bdim + n -self._M for n in self.lr_feature_modes],
+                     transpose=True,
+                     )
         elif self.type == 'feature_dir_n':
-            xt = mmp(x, self.Us, in_prod_modes,
-                     skip_modes=skip_modes, transpose=True)
+            # xt = mmp(x, self.Us, in_prod_modes,
+            #          skip_modes=skip_modes, transpose=True)
+            xt = mmp(x, self.Us,
+                     modes=[bdim+n-self._M for n in self.lr_feature_modes],
+                     skip_modes=[mode_n+bdim],
+                     transpose=True)
         elif self.type == 'feature_dir_n_full':
-            xt = mmp(x, self.Us, in_prod_modes,
-                     skip_modes=skip_modes, transpose=True)
+            # xt = mmp(x, self.Us, in_prod_modes,
+            #          skip_modes=skip_modes, transpose=True)
+            # xt = torch.tensordot(xt, self.core,
+            #         dims=(xt_dot_modes, self.C_dot_modes))
+            # xt = torch.movedim(xt, source=batched*1, destination=-2)
+            xt = mmp(x, self.Us,
+                    modes=[bdim+n-self._M for n in self.lr_feature_modes],
+                    skip_modes=[mode_n+bdim],
+                    transpose=True,
+                    )
             xt = torch.tensordot(xt, self.core,
-                    dims=(xt_dot_modes, self.C_dot_modes))
-            xt = torch.movedim(xt, source=batched*1, destination=-2)
+                dims=(
+                    [bdim+n for n in range(self._N) if n != mode_n-1], # bdim+0,..., bdim+n-2, bdim+n,..., bdim+N-1
+                    [self._M+n for n in range(self._N) if n != mode_n-1] # M,...,M+n-1,M-(n+1),...,M+N-1
+                    )
+                )
+            xt = torch.movedim(xt, source=bdim, destination=-2)
         elif self.type == 'task_dirs':
-            xt = mmp(x, self.Us, in_prod_modes,
-                     skip_modes=skip_modes, transpose=True)
-            xt = torch.tensordot(xt, self.core, 
-                    dims=(xt_dot_modes, self.C_dot_modes))
+            # xt = mmp(x, self.Us, in_prod_modes,
+            #          skip_modes=skip_modes, transpose=True)
+            # xt = torch.tensordot(xt, self.core,
+            #         dims=(xt_dot_modes, self.C_dot_modes))
+            xt = mmp(x, self.Us,
+                modes=[bdim+n-self._M for n in self.lr_feature_modes],
+                skip_modes=[mode_n+bdim],
+                transpose=True
+                )
+            xt = torch.tensordot(xt, self.core,
+                    dims=(
+                        [bdim+n for n in range(self._N)],
+                        [self._M+n for n in range(self._N)]
+                    )
+                    )
         elif self.type == 'full':
             return x
         else:
@@ -178,7 +221,8 @@ class TuckerRegressor(nn.Module):
     task_manifolds: Optional[Sequence[Manifold]]
         Manifolds for the task directions. Defaults to Steifel manifold of
         appropriate dimensions. Can also be `GeneralizedSteifel`.
-    
+    seed: Optional[torch.Generator | int] = None,
+        Seed for initializing the manifold parameters \{U_i\} and \{V_j\}
     Notes
     -----
     ..  If `task_dims` and `task_ranks` are equal i.e. full task rank, the task
@@ -199,9 +243,13 @@ class TuckerRegressor(nn.Module):
         task_ranks: Optional[Sequence[int]] = None,
         core: Optional[torch.Tensor] = None,
         feature_directions: Optional[Sequence[torch.Tensor]] = None,
+        intercept: Optional[torch.Tensor] = None,
         task_directions: Optional[Sequence[torch.Tensor]] = None,
         feature_manifolds: Optional[Sequence[Manifold]] = None,
         task_manifolds: Optional[Sequence[Manifold]] = None,
+        seed: Optional[torch.Generator | int] = None,
+        force_lr_features: bool = False,
+        force_lr_tasks: bool = False,
         ):
         super().__init__()
         if task_dims is None:
@@ -224,50 +272,108 @@ class TuckerRegressor(nn.Module):
         # First mode    is for samples
         # 2,...,M+1     is for tasks
         # M+2,...,M+N+1 is for input covariates
+        self.lr_feature_modes = [
+            self._M + 1 + n for n in range(self._N)
+            if self.feature_ranks[n] < self.feature_dims[n] or force_lr_features
+        ]
+        self.lr_task_modes = [
+            self._M + 1 + n for n in range(self._M)
+            if self.task_ranks[n] < self.task_dims[n] or force_lr_tasks
+        ]
+        self.lr_modes = self.lr_task_modes + self.lr_feature_modes
         self.modes = [i for i in range(1, self.order + 1)]
         self.out_prod_dims = [m for m in range(2, self._M+1)]
         self.in_prod_dims = [n for n in range(2+self._M, 2+self.order)]
 
         # Initialize the parameters
-        self.core = ManifoldParameter(data=core,
-                                      manifold=Euclidean(self.ranks))
-
         if feature_directions is None:
-            feature_directions = [None for _ in range(self._N)]
+            # feature_directions = [None for _ in range(self._N)]
+            feature_directions = [None for _ in self.lr_feature_modes]
         if feature_manifolds is None:
+            # feature_manifolds = [
+            #     Steifel(fd, fr)
+            #     for fd, fr in zip(self.feature_dims, self.feature_ranks)
+            # ]
             feature_manifolds = [
-                Steifel(fd, fr)
-                for fd, fr in zip(self.feature_dims, self.feature_ranks)
+                Steifel(self.feature_dims[n-1-self._M],
+                        self.feature_ranks[n-1-self._M])
+                    for n in self.lr_feature_modes
             ]
+        device = feature_manifolds[0].device
+        dtype = feature_manifolds[0].dtype
+        self.core = ManifoldParameter(
+            data= torch.zeros(
+                self.ranks, device=device, dtype=dtype
+                              ) if core is None else core,
+            manifold=Euclidean(self.ranks, device=device))
         self.Us = [
-            ManifoldParameter(data=fdir, manifold=fman)
+            ManifoldParameter(data=fdir, manifold=fman, seed=seed)
                 for fdir,fman in zip(feature_directions, feature_manifolds)
         ]
-        for i,p in enumerate(self.Us):
-            self.register_parameter(f"U_{i+1}", p)
+        # for i,p in enumerate(self.Us):
+        for n, p in zip(self.lr_feature_modes, self.Us):
+            # self.register_parameter(f"U_{i+1}", p)
+            self.register_parameter(f"U_{n-self._M}", p)
 
         self._full_rank_task = self.task_dims == self.task_ranks
-        if self._full_rank_task:
-            self.Vs = None  # pylint: disable=invalid-name
-        else:
-            if task_directions is None:
-                task_directions = [None for _ in range(self._M)]
-            if task_manifolds is None:
-                task_manifolds = [
-                    Steifel(td, tr)
-                    for td, tr in zip(self.task_dims, self.task_ranks)
-                ]
-            self.Vs = [
-                ManifoldParameter(data=tdir, manifold=tman)
-                    for tdir,tman in zip(task_directions, task_manifolds)
-                ]
-            for i,p in enumerate(self.Vs):
-                self.register_parameter(f"V_{i+1}", p)
+
+        if task_directions is None:
+            task_directions = [None for _ in self.lr_task_modes]
+        if task_manifolds is None:
+            task_manifolds = [
+                Steifel(self.task_dims[n-1], self.task_ranks[n-1])
+                    for n in self.lr_task_modes
+            ]
+        self.Vs = [
+            ManifoldParameter(data=fdir, manifold=fman, seed=seed)
+                for fdir,fman in zip(task_directions, task_manifolds)
+        ]
+        for m, p in zip(self.lr_task_modes, self.Vs):
+            # self.register_parameter(f"U_{i+1}", p)
+            self.register_parameter(f"V_{m}", p)
+        # if self._full_rank_task:
+        #     self.Vs = None  # pylint: disable=invalid-name
+        # else:
+        #     if task_directions is None:
+        #         task_directions = [None for _ in range(self._M)]
+        #     if task_manifolds is None:
+        #         task_manifolds = [
+        #             Steifel(td, tr)
+        #             for td, tr in zip(self.task_dims, self.task_ranks)
+        #         ]
+        #     self.Vs = [
+        #         ManifoldParameter(data=tdir, manifold=tman, seed=seed)
+        #             for tdir,tman in zip(task_directions, task_manifolds)
+        #         ]
+        #     for i,p in enumerate(self.Vs):
+        #         self.register_parameter(f"V_{i+1}", p)
+
+        self.intercept = (
+            torch.nn.Parameter(
+                data=torch.zeros(
+                    self.task_dims, device=device, dtype=dtype
+                    ) if intercept is None else intercept
+                )
+            )
+
+    @torch.no_grad()
+    def expanded_form(self) -> torch.Tensor:
+        """Return the tucker regressor in expanded tensor form."""
+        # if self.Vs is None:
+        #     factors = self.Us
+        #     modes = [m for m in range(1 + self._M, self.order +1)]
+        # else:
+        #     modes = [m for m in range(1, self.order +1)]
+        #     factors = self.Vs + self.Us
+        factors = self.Vs + self.Us
+        modes = self.lr_modes
+        B = mmp(self.core, factors, modes = modes)
+        return B
 
     @torch.no_grad()
     def predict(self, # pylint: disable=unused-argument
             X:torch.Tensor, # pylint: disable=invalid-name
-            y=None,
+            y=None, # pylint: disable=unused-argument
             fw_mode='full',
             mode_n=None,
             ) -> torch.Tensor:
@@ -289,6 +395,10 @@ class TuckerRegressor(nn.Module):
     @torch.no_grad()
     def score(self, pred:torch.Tensor, Y:torch.Tensor) -> float:    # pylint: disable=invalid-name
         # TODO: Add docstring and perhaps other options for scores.
+        if self.regression_type is not 'multinomial':
+            Y = Y.reshape((-1,) + self.task_dims)
+        else:
+            Y = Y.reshape((-1,1))
         if self.regression_type == 'linear':
             ss_total = torch.sum((Y - torch.mean(Y, dim=0))**2)
             ss_residual = torch.sum((Y - pred)**2)
@@ -298,9 +408,12 @@ class TuckerRegressor(nn.Module):
             pred = pred >0.5
             accuracy = torch.sum(Y == pred).item()
             accuracy = accuracy/ Y.shape[0]
+            # return 1- ((Y-pred).abs().sum()/Y.shape[0])
             return accuracy
         elif self.regression_type == 'multinomial':
-            pred_idx = pred.argmax(dim=1)
+            # one_hot = torch.zeros_like(probs).scatter_(1,Y, 1.0)
+            # return (1- (one_hot - pred)/ Y.shape[0])
+            pred_idx = pred.argmax(dim=1, keepdims=True)
             accuracy = torch.sum(Y == pred_idx).item()
             accuracy = accuracy / Y.shape[0]
             return accuracy
@@ -371,28 +484,34 @@ class TuckerRegressor(nn.Module):
         # x_v = x.view([n_samp] + [1]*self._M + list(self.feature_dims))
 
         # Multiply x_v in the feature modes with U_m^T
-        x_v = mmp(x,
-                  self.Us,
-                  modes=[n+1 for n in range(b_dim, b_dim + self._N)],
-                  transpose=True)
+        x_v = mmp(
+            x,
+            self.Us,
+            modes= [n+b_dim-self._M for n in self.lr_feature_modes], #[n+1 for n in range(b_dim, b_dim + self._N)],
+            transpose=True
+            )
 
         eta = torch.tensordot(x_v, self.core,
                 dims=(
                     [n for n in range(b_dim, b_dim+self._N)],
                     [n for n in range(self._M, self.order)]
+                    )
                 )
-                )
-        # eta = torch.tensordot(eta, self.core,
-        #                       dims=([i-1 for i in self.in_prod_dims],
-        #                             [i+self._M for i in range(self._N)]))
-        if self._full_rank_task:
-            return eta
-        else:
-            # TODO: This line may be wrong.
-            return mmp(eta,
-                       self.Vs,
-                       modes=[m+1 for m in range(b_dim, b_dim+self._M)],
-                       transpose=False)
+        eta = mmp(
+            eta,
+            self.Vs,
+            modes = [n+b_dim for n in self.lr_task_modes],
+            transpose=False
+            )
+        return eta + self.intercept
+        # if self._full_rank_task:
+        #     return eta + self.intercept
+        # else:
+        #     # TODO: This line may be wrong.
+        #     return mmp(eta,
+        #                self.Vs,
+        #                modes=[m+1 for m in range(b_dim, b_dim+self._M)],
+        #                transpose=False) + self.intercept
 
     def _fw_core(self, x):
         b_dim = x.ndim - self._N
@@ -411,15 +530,22 @@ class TuckerRegressor(nn.Module):
                     [n for n in range(self._M, self.order)]
                 )
                 )
-        if self._full_rank_task:
-            return eta
-        else:
-            return mmp(eta, self.Vs,
-                       modes=[m+1 for m in range(b_dim, b_dim+self._M)],
-                       transpose=False)
+        eta = mmp(eta,
+                  self.Vs,
+                  modes = [n+b_dim for n in self.lr_task_modes],
+                  transpose=False
+                  )
+        return eta + self.intercept
+        # if self._full_rank_task:
+        #     return eta + self.intercept
+        # else:
+        #     return mmp(eta, self.Vs,
+        #                modes=[m+1 for m in range(b_dim, b_dim+self._M)],
+        #                transpose=False) + self.intercept
 
 
     def _fw_feature_dir_n(self, x, mode_n=None):
+        b_dim = x.ndim - self._N - self._M
         if x.ndim == self._N:
             n_samp = 1
         elif x.ndim == self._N+1:
@@ -432,20 +558,35 @@ class TuckerRegressor(nn.Module):
         fdims[n-1] = self.feature_ranks[n-1]
         x_v = x.view([n_samp] + [1]*self._M + fdims)
 
+        # eta = mode_n_product(x_v,
+        #                      self.Us[n-1],
+        #                      mode=1+self._M+n,
+        #                      transpose=True)
         eta = mode_n_product(x_v,
-                             self.Us[n-1],
+                             getattr(self, f'U_{n}'),
                              mode=1+self._M+n,
                              transpose=True)
 
         eta = torch.tensordot(eta, self.core,
                             dims=([i-1 for i in self.in_prod_dims],
                                   [i+self._M for i in range(self._N)]))
-        if self._full_rank_task:
-            return eta
-        else:
-            return mmp(eta, self.Vs, modes=self.out_prod_dims, transpose=False)
+
+        eta = mmp(
+            eta,
+            self.Vs,
+            modes = [n+b_dim for n in self.lr_task_modes],
+            transpose=False
+            )
+        return eta + self.intercept
+        # if self._full_rank_task:
+        #     return eta + self.intercept
+        # else:
+        #     return self.intercept + mmp(eta, self.Vs,
+        #         modes=self.out_prod_dims, transpose=False
+        #         )
 
     def _fw_feature_dir_n_full(self, x, mode_n=None):
+        b_dim = x.ndim - self._N - self._M
         if x.ndim == self._M+2:
             n_samp = 1
         elif x.ndim == self._M+3:
@@ -457,11 +598,24 @@ class TuckerRegressor(nn.Module):
         tdims = list(self.task_ranks)
         fn, r_fn = self.feature_dims[n-1], self.feature_ranks[n-1]
         x_v = x.view([n_samp] + tdims + [fn, r_fn])
-        eta = torch.tensordot(x_v, self.Us[n-1], dims=2)
-        if self._full_rank_task:
-            return eta
-        else:
-            return mmp(eta, self.Vs, modes=self.out_prod_dims, transpose=False)
+        # eta = torch.tensordot(x_v, self.Us[n-1], dims=2)
+        eta = torch.tensordot(
+            x_v,
+            getattr(self, f"U_{n}"),
+            dims=2)
+        eta = mmp(
+            eta,
+            self.Vs,
+            modes = [n+b_dim for n in self.lr_task_modes],
+            transpose=False
+            )
+        return eta + self.intercept
+        # if self._full_rank_task:
+        #     return eta + self.intercept
+        # else:
+        #     return self.intercept + mmp(eta, self.Vs,
+        #             modes=self.out_prod_dims, transpose=False
+        #             )
 
     def _fw_task_dirs(self, x):
         raise NotImplementedError(
@@ -518,26 +672,29 @@ class TuckerRegressor(nn.Module):
                     param.requires_grad = True
 
             elif forward_mode == 'feature_dir_n':
-                if not dir_n in list(range(1, self._N+1)):
+                if not dir_n in [n - self._M for n in self.lr_feature_modes]: #list(range(1, self._N+1)):
                     raise ValueError(
                         f"Provided feature direction n is {dir_n} is invalid."
                         )
                 # Reactivate the gradients for U_n
-                self.Us[dir_n-1].requires_grad = True
+                getattr(self, f'U_{dir_n}').requires_grad = True
+                # self.Us[dir_n-1].requires_grad = True
                 self._active_dir_n = dir_n
 
             elif forward_mode == 'feature_dir_n_full':
-                if not dir_n in range(1, self._N+1):
+                if not dir_n in [n - self._M for n in self.lr_feature_modes]: #range(1, self._N+1):
                     raise ValueError(
                         f"Provided feature direction n is {dir_n} is invalid."
                         )
                 # Reactivate the gradients for U_n
-                self.Us[dir_n-1].requires_grad = True
+                # self.Us[dir_n-1].requires_grad = True
+                getattr(self, f'U_{dir_n}').requires_grad = True
                 self._active_dir_n = dir_n
 
             elif forward_mode == 'core':
                 # Reactivate the gradients for the core tensor.
                 self.core.requires_grad = True
+                self.intercept.requires_grad = True
 
             elif forward_mode == 'task_dirs':
                 self._active_dir_n = None
@@ -547,6 +704,8 @@ class TuckerRegressor(nn.Module):
         return TuckerCovariateTransform(
                 transform_type = forward_mode,
                 Us = self.Us,
+                N= self._N,
+                lr_feature_modes=self.lr_feature_modes,
                 core = self.core,
                 mode_n = self._active_dir_n
             )
@@ -568,15 +727,23 @@ class TuckerRegressor(nn.Module):
                     [n for n in range(self._M, self.order)]
                 )
                 )
-        if self._full_rank_task:
-            return eta
-        else:
-            return mmp(eta, self.Vs,
-                       modes=[m+1 for m in range(b_dim, b_dim+self._M)],
-                       transpose=False)
+        eta = mmp(
+            eta,
+            self.Vs,
+            modes = [n+b_dim for n in self.lr_task_modes],
+            transpose=False
+            )
+        return eta + self.intercept
+        # if self._full_rank_task:
+        #     return eta + self.intercept
+        # else:
+        #     return mmp(eta, self.Vs,
+        #                modes=[m+1 for m in range(b_dim, b_dim+self._M)],
+        #                transpose=False) + self.intercept
 
     def functional_feature_dir_n_full(self, U, x): # pylint: disable=invalid-name
         # TODO: Add docstring
+        b_dim = x.ndim - self._N - self._M
         if x.ndim == self._M+2:
             n_samp = 1
         elif x.ndim == self._M+3:
@@ -589,10 +756,18 @@ class TuckerRegressor(nn.Module):
         fn, r_fn = U.shape[0], U.shape[1]
         x_v = x.view([n_samp] + tdims + [fn, r_fn])
         eta = torch.tensordot(x_v, U, dims=2)
-        if self._full_rank_task:
-            return eta
-        else:
-            return mmp(eta, self.Vs, modes=self.out_prod_dims, transpose=False)
+        eta = mmp(
+            eta,
+            self.Vs,
+            modes = [n+b_dim for n in self.lr_task_modes],
+            transpose=False
+            )
+        return eta + self.intercept
+        # if self._full_rank_task:
+        #     return eta + self.intercept
+        # else:
+        #     return self.intercept + mmp(eta, self.Vs,
+        #                modes=self.out_prod_dims, transpose=False)
 
     @property
     def covariant_degree(self):

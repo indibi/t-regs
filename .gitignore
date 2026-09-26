@@ -12,6 +12,7 @@ wheels/
 *.cache/
 .
 # Folders
+src/t_regs/optimization/
 development/
 labrat/
 data/

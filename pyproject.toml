@@ -26,22 +26,26 @@ dependencies = [
   "networkx>=3.5",
   "numpy>=2.3.4",
   "pandas>=2.3.3",
+  "python-dotenv>=1.2.3",
   "scikit-learn>=1.7.2",
   "scipy>=1.16.3",
   "tensorboard==2.20.0",
-  "torch>=2.7.1",
+  "torch==2.13.0",
   "torchvision>=0.22.1",
 ]
 
 [dependency-groups]
 dev = [
     "bokeh>=3.8.0",
+    "cookiecutter-data-science>=2.3.0",
     "dask[distributed]>=2025.10.0",
     "geopandas>=1.1.1",
     "hydra-core>=1.3.2",
     "ipykernel>=7.1.0",
+    "ipympl>=0.10.0",
     "ipywidgets>=8.1.8",
     "nx-cugraph-cu12>=25.10.0",
+    "omegaconf>=2.3.0",
     "optuna>=4.5.0",
     "optuna-dashboard>=0.19.0",
     "optuna-integration>=4.5.0",
@@ -49,8 +53,13 @@ dev = [
     "pyyaml>=6.0.3",
     "ruff>=0.14.5",
     "sphinx>=9.0.4",
+    "tabulate>=0.10.0",
     "tqdm>=4.67.1",
     "wandb>=0.22.3",
+]
+eeg = [
+    "mne[hdf]>=1.12.1",
+    "pyqt5>=5.15.11",
 ]
 neuro-img = [
     "nibabel>=5.4.2",
@@ -59,6 +68,8 @@ neuro-img = [
     "pybids>=0.22.0",
 ]
 
+[tool.uv]
+package = true
 
 [tool.uv.sources]
 torch = [
