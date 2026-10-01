@@ -90,11 +90,15 @@ class Manifold(abc.ABC):
         """
 
     @abc.abstractmethod
-    def random_point(self, generator:int) -> torch.Tensor:
+    def random_point(self, generator: torch.Generator) -> torch.Tensor:
         """Return a random point on the manifold"""
 
     @abc.abstractmethod
-    def random_tangent(self, point: torch.Tensor, generator) -> torch.Tensor:
+    def random_tangent(
+        self,
+        point: torch.Tensor,
+        generator:torch.Generator
+        ) -> torch.Tensor:
         """Return a random tangent vector at the `point` on the manifold"""
 
     @abc.abstractmethod
@@ -106,6 +110,10 @@ class Manifold(abc.ABC):
                 point: torch.Tensor,
                 vector: torch.Tensor) -> torch.Tensor:
         """Project `vector` onto tangent space of the manifold at the `point`"""
+
+    def project_to_manifold(self, point:torch.Tensor) -> torch.Tensor:
+        """Project `point` onto the manifold."""
+        raise NotImplementedError
 
     def to(self, *args, **kwargs):
         """Move the manifold to device if it is defined through a torch.Tensor"""

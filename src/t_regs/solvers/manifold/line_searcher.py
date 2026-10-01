@@ -257,6 +257,7 @@ class ArmijoPointSearch:
                eta: torch.Tensor = None,
                f_x: Optional[float] = None,
                grad_f_x: Optional[torch.Tensor] = None,
+               nu_k: Optional[float] = None,
                **kwargs
                ) -> Tuple[torch.Tensor, float, int]:
         r"""Search Armijo point.
@@ -273,6 +274,9 @@ class ArmijoPointSearch:
             Function value at `x`.
         grad_f_x: Optional[torch.Tensor]
             Riemannian gradient of :math:`f` at point `x`.
+        nu_k: Optional[float]
+            Additional constant relaxing the line search sufficient decrease
+            condition. Used in nested algorithms. Defaults to `self.nu`.
         
         Returns
         -------
@@ -303,8 +307,9 @@ class ArmijoPointSearch:
         x_new = problem.manifold.retract(x, t*eta)
         f_x_new = problem.objective(x_new)
         step_count = 1
+        nu = self.nu if nu_k is None else nu_k
         while (
-            (f_x - f_x_new) < (- self.sigma*t*d_f_x_eta + self.nu)
+            (f_x - f_x_new) < (- self.sigma*t*d_f_x_eta - nu)
             and step_count <= self.max_it
             ):
             t = t * self.beta
@@ -358,3 +363,46 @@ class ArmijoPointSearch:
 
     def __str__(self,) -> str:
         return type(self).__name__
+
+
+# class BarzilaiBorweinLineSearch:
+#     r"""Riemannian Barzilai-Borwein Line Search Algorithm
+
+#     For a cost function for a cost function :math:`f:\mathcal{M}\to\mathbb{R}`
+#     defined on a manifold :math:`\mathcal{M}`;:class:`BarzilaiBorweinLineSearch`
+#     finds the step size :math:`α_k = β^m α_k^{BB}` in every iteration that
+#     satisfies the following sufficient decrease condition,
+#     .. math::
+#         f(x_k) - f(R_x(α_k g_k)) ≥ σ α_k 〈 g_k, g_k 〉_x - v_k
+
+#     where :math:`g_k= \mathrm{grad} f(x_k)` is the riemannian gradient of 
+#     :math:`f` evaluated at :math:`x_k`, β, σ ∈ (0,1) are the attenuation
+#     parameter and sufficient decrease parameters respectively, α_k^{BB} > 0
+#     is the BB step size in iteration k, v_k ≥ 0 is an additional constant
+#     used in nested optimization algorithms to ensure sufficient decrease.
+    
+#     Parameters
+#     ----------
+#     alpha_0: float
+#         Initial BB step size :math:`\alpha_0 \in [\alpha_{min}, \alpha_{max}]`.
+#     sigma: float
+#         Sufficient decrease parameter :math:`\sigma \in (0,1)`.
+#     beta: float
+#         Step size reduction factor.
+#     alpha_min: Optional[float]
+#         Lower bound for calculating the BB step size.
+#     alpha_max: Optional[float]
+#         Upper bound for calculating the BB step size.
+#     max_it: Optional[int] = 80
+#         Maximum number of iterations for the search.
+#     """
+
+#     def __init__(self,
+#         alpha_0: float,
+#         sigma: 1e-4,
+#         beta: 0.2,
+#         alpha_min: Optional[float] = 1e-6,
+#         alpha_max: Optional[float] = 1e4,
+#         max_it: Optional[int] = 80,
+#         ):
+#         pass

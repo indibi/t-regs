@@ -12,6 +12,8 @@ References
 Author: Mert Indibi (indibimert2@gmail.com)
 """
 import weakref
+import copy
+from typing import Optional
 
 import torch
 
@@ -42,23 +44,55 @@ class ManifoldParameter(torch.nn.Parameter):
         manifold: t_regs.manifolds.Manifold | None
             Manifold object.
     """
-    def __new__(cls, data=None, requires_grad=True, manifold=None):
+    def __new__(
+            cls,
+            data=None,
+            requires_grad=True,
+            manifold=None,
+            seed: Optional[torch.Generator | int] = None
+            ):
         if data is None:
             if manifold is not None:
-                data = manifold.random_point()
+                if isinstance(seed, int):
+                    rng = torch.Generator(device=manifold.device)
+                    rng.manual_seed(seed)
+                else:
+                    rng = seed
+                data = manifold.random_point(rng)
             else:
                 data = torch.Tensor()
         return torch.nn.Parameter._make_subclass(cls, data, requires_grad)
 
-    def __init__(self,
-                 data=None, # pylint: disable=unused-argument
-                 requires_grad=True, # pylint: disable=unused-argument
-                 manifold=None):
+    def __init__(
+            self,
+            data=None, # pylint: disable=unused-argument
+            requires_grad=True, # pylint: disable=unused-argument
+            manifold=None,
+            seed: Optional[torch.Generator | int] = None
+            ):
         self._manifold = manifold
         self._rgrad = None
         if manifold is not None:
             assert manifold.size == self.size()
             self.register_rgrad_hook()
+
+    def __deepcopy__(self, memo):
+        # If already copied in this session, return it
+        if id(self) in memo:
+            return memo[id(self)]
+        # Clone data detached from the computation graph to preserve leaf status
+        cloned_data = self.data.clone()
+        # Instantiate a new object of your custom class
+        result = ManifoldParameter(cloned_data, requires_grad=self.requires_grad)
+
+        # Copy the gradient buffer if it exists
+        if self.grad is not None:
+            result.grad = self.grad.clone()
+        result._manifold = copy.deepcopy(self._manifold)
+
+        # Store in memo dictionary to handle circular references
+        memo[id(self)] = result
+        return result
 
     def register_rgrad_hook(self):
         """Register riemannian gradient hook"""

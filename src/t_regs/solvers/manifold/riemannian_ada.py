@@ -4,9 +4,9 @@ Implementation is based on [1]
 
 References
 ----------
-..  [1] Xu, Meng, et al. "A Riemannian Alternating Descent Ascent Algorithmic Framework
-    for Nonconvex-Linear Minimax Problems on Riemannian Manifolds." arXiv preprint
-    arXiv:2409.19588 (2024).
+..  [1] Xu, Meng, et al. "A Riemannian Alternating Descent Ascent Algorithmic
+    Framework for Nonconvex-Linear Minimax Problems on Riemannian Manifolds."
+    arXiv preprint arXiv:2409.19588 (2024).
 
 Author:
 Mert Indibi
@@ -17,20 +17,22 @@ Mert Indibi
 import collections
 from time import perf_counter
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Callable
+from typing import Dict, Optional
+import math
 
 import torch
-import numpy as np
 
 from ...manifolds import Manifold
-from .line_searcher import LineSearcher
-# from .gradient_descent import RiemmannianGradientDescent as RGD
+from .problem import Problem
+from .minimax_problem import MinimaxProblemPoint, MinimaxProblem
+from .line_searcher import ArmijoPointSearch
+
 from ...utils import printer
 
 @dataclass
 class RADA_RGD_Result:  # pylint: disable=invalid-name
-    point: Any
-    objective: float
+    point: MinimaxProblemPoint
+    phi_k_x: float
     iterations: int
     stopping_criterion: str
     time: float
@@ -41,22 +43,24 @@ class RADA_RGD_Result:  # pylint: disable=invalid-name
     log: Optional[Dict] = None
 
 
-# class RADA_PGD:
-#     pass
-
 class RADA_RGD:   # pylint: disable=invalid-name
     r"""Riemannian Ascent Descent Algorithm with Riemannian Gradient Descent
-    
+
+    Solves the following minimax problem defined in [1],
+    .. math::
+        \min_{x∈\mathcal{M}} \max_{y∈E} \{ F(x,y):= f(x) + <A(x), y> - h(y)\}
+
     Parameters
     ----------
-    line_searcher:
+    R:
+        Should be set to :math:`\mathrm{max}_{y \in dom(h)} \|y\|`
+    line_searcher: ArmijoPointSearch
         Line search helper algorithm used to ensure the condition (4.2) in [1]
-        is met. If not provided, defaults to the default of LineSearcher class
-        initialization.
-    step_size:
+        is met. If not provided, defaults to :class:`ArmijoPointSearch` with
+        it's default initialization setting.
+    step_size: Optional[float]
         If provided, this fixed step size will be used for the Riemannian
-        gradient descent updates instead of performing a line search. Not
-        recommended.
+        gradient descent updates instead of performing a line search.
     max_it:
         Maximum iterations allowed for the algorithm.
     Tk:
@@ -64,11 +68,6 @@ class RADA_RGD:   # pylint: disable=invalid-name
     beta1:
         Parameter :math:`\beta_1` used in the algorithm as described in [1].
         This is application dependent and should ideally be fine tuned.
-    c_1:
-        Sufficient decrease factor :math:`c_1 \in (0,1)`
-    eta:
-        Step size decrease factor :math:`\eta \in (0,1)` for the backtracking
-        line search.
     rho:
         Dual variable proximal regularization parameter :math:`\beta_k`s 
         attenuation factor in :math:`\beta_{k+1} = \frac{\beta_1^{(k+1)}}{
@@ -77,13 +76,9 @@ class RADA_RGD:   # pylint: disable=invalid-name
         :math:`\beta_1^{(k)}` update threshold :math:`\tau_1 \in (0,1)`
     tau_2:
         :math:`\beta_1^{(k)}` attenuation factor :math:`\tau_2 \in (0,1)`
-    eps:
-        :math:`\epsilon`-Stationarity condition for the problem.
-    R:
-        Should be set to :math:`\mathrm{max}_{y \in dom(h)} \|y\|`
-    zeta_max:
+    alpha_BB_max:
         Upper step size limit for BB step size.
-    zeta_min:
+    alpha_BB_min:
         Lower limit for BB step size
     min_gradient_norm:
         Algorithm stopping criterion based on the minimum gradient norm.
@@ -101,61 +96,65 @@ class RADA_RGD:   # pylint: disable=invalid-name
         Period for reporting progress.
     logging_period:
         Period for logging details.
+    
+    References
+    ----------
+    ..  [1] Xu, Meng, et al. "A Riemannian Alternating Descent Ascent 
+        Algorithmic Framework for Nonconvex-Linear Minimax Problems on 
+        Riemannian Manifolds." arXiv preprint arXiv:2409.19588 (2024).
     """
     def __init__(self,
-                 line_searcher: LineSearcher | None = None,
-                 step_size: float | None = None,
-                 max_it: int = 1000,
-                 Tk: int = 10,  # py-lint: disable=invalid-name
-                 beta1: float = 1.0,
-                 c_1: float = 1e-4,
-                 eta: float = 0.1,
-                 rho: float = 1.5,
-                 tau_1: float = 0.999,
-                 tau_2: float = 0.9,
-                 eps: float = 1e-6,
-                 R: float = 1.0,    # py-lint: disable=invalid-name
-                 # TODO: These were set arbitrarily. Find a more informed 
-                 # way to choose them
-                 zeta_max: float = 1e6,
-                 zeta_min: float = 0,
-                 min_gradient_norm : float = 1e-8,
-                 max_time: float | None = None,
-                 max_function_evals: int = 5000,
-                 min_step_size:float = 0,
-                 verbosity: int = 0,
-                 log_verbosity: int = 1,
-                 report_period: int = 1,
-                 logging_period: int = 1,
-                 ):
+        R: float,    # py-lint: disable=invalid-name
+        line_searcher: ArmijoPointSearch | None = None,
+        step_size: float | None = None,
+        max_it: int = 1000,
+        Tk: int = 10,  # py-lint: disable=invalid-name
+        beta1: float = 1.0,
+        rho: float = 1.5,
+        tau_1: float = 0.999,
+        tau_2: float = 0.9,
+        alpha_BB_max: float = 1e6,
+        alpha_BB_min: float = 1e-8,
+        min_gradient_norm : float = 1e-8,
+        max_time: float | None = None,
+        max_function_evals: int = 5000,
+        min_step_size:float = 0,
+        verbosity: int = 0,
+        log_verbosity: int = 1,
+        report_period: int = 1,
+        logging_period: int = 1,
+        ):
         # pylint: disable=invalid-name
         self.step_size = step_size
-        self.line_searcher = None
+        self.line_searcher = line_searcher
         if step_size is None:
             if line_searcher is None:
-                self.line_searcher = LineSearcher()
-            elif isinstance(line_searcher, LineSearcher):
+                self.line_searcher = ArmijoPointSearch(
+                    retain_old_step_size=False,
+                )
+            elif isinstance(line_searcher, ArmijoPointSearch):
                 self.line_searcher = line_searcher
             else:
-                raise TypeError(("No step size is provided and the line "
-                                 "search algorithm is not of type LineSearcher")
-                )
+                raise TypeError((
+                    "No step size is provided and the line search algorithm "
+                    "is not of type `ArmijoPointSearch`"
+                    ))
         else:
             if step_size <= 0:
                 raise ValueError(("Provided step size must be positive"))
-
+        eps = min_gradient_norm
         self.lda = eps/(2*R)
         self.nu = lambda beta_k: 2*Tk*(R**2)*beta_k
         self.beta1 = beta1
         self.Tk = Tk    # py-lint: disable=invalid-name
-        self.c_1 = c_1
-        self.eta = eta
         self.rho = rho
+        self.R = R
+        self.eps = eps
         self.tau_1 = tau_1
         self.tau_2 = tau_2
         self.max_it = max_it
-        self.zeta_max = zeta_max
-        self.zeta_min = zeta_min
+        self.alpha_BB_max = alpha_BB_max
+        self.alpha_BB_min = alpha_BB_min
         self.min_gradient_norm = min_gradient_norm
         self.max_time = max_time
         self.max_function_evals = max_function_evals
@@ -168,251 +167,318 @@ class RADA_RGD:   # pylint: disable=invalid-name
 
 
     def solve(self,
-              func_f: Callable[[torch.Tensor], float | torch.Tensor],
-              grad_f: Callable[[torch.Tensor], torch.Tensor],
-              prox_h: Callable[[torch.Tensor, float], torch.Tensor],
-              A: Callable[[torch.Tensor], torch.Tensor],    # py-lint: disable=invalid-name
-              nabla_AT: Callable[[torch.Tensor], torch.Tensor],  # py-lint: disable=invalid-name
-              manifold: Manifold,
-              func_g: Callable[[torch.Tensor], float] | None = None,
-              x0: torch.Tensor | None = None,
-              y0: torch.Tensor | None = None,
-              generator: torch.Generator = None
-              ) -> RADA_RGD_Result:
+        problem: MinimaxProblem,
+        x0: Optional[torch.Tensor] = None,
+        y0: Optional[torch.Tensor] = None,
+        init_point: Optional[MinimaxProblemPoint] = None,
+        seed: Optional[int | torch.Generator] = None,
+        ) -> RADA_RGD_Result:
         r"""Solve the optimization problem
-        
+
         Parameters
         ----------
-        func_f: 
-            Smooth objective function :math:`f` to be minimized
-        grad_f:
-            Function evaluating the euclidean gradient of :math:`f` at a point.
-        prox_h:
-            Proximal operator of the function :math:`h`
-        A:
-            Smooth, possibly nonlinear mapping.
-        nabla_AT:
-            Adjoint of the Jacobian of the mapping :math:`A`. If :math:`A` is a
-            linear mapping, this corresponds to the adjoint of :math:`A`.
-        manifold:
-            The manifold to minimize :math:`f` over
+        problem: :class:`MinimaxProblem`
+            MinimaxProblem class defining the manifold optimization problem.
+        init_point: Optional[MinimaxProblemPoint]
+            Inital point to start the RADA optimization. Defaults to random
+            initialization if not provided.
         x0:
-            Initial point to start the optimization
-        generator:
-            Torch pseudo random generator used to initialize `x0` when it is not
-            provided.
-        
+            Initial :math:`x` value to begin the optimization. Defaults to
+            random initialization with `seed`.
+        y0:
+            Initial :math:`y` value to begin the optimization. Defaults to
+            random initialization with `seed`.
+        seed:
+            Integer or :class:`torch.Generator`. Defaults to None.
+
         Returns
         -------
             result: RADA_RGD_Result
         """
         # pylint: disable=invalid-name
-        if self.verbosity >= 1:
-            print("Optimizing...")
-        if self.verbosity >= 2:
-            iteration_format_length = int(np.log10(self.max_it)) + 1
-            columns = [("Iteration", f"{iteration_format_length}d"),
-                       ("f(x)", "+.12e")
-                       ]
-            columns += [("g(x)", "+.8e")] if func_g is not None else []
-            columns += [("Phi_k(x)", "+.12e"),
-                        ("Gradient norm", ".8e"),
-                        ("del_k", ".8e"),
-                        ]
-            column_printer = printer.ColumnPrinter(columns=columns)
-        else:
-            column_printer = printer.VoidPrinter()
         start_time = perf_counter()
+        manifold: Manifold = problem.manifold
+        line_searcher: ArmijoPointSearch = self.line_searcher
+        column_printer = self._initialize_column_printer()
         column_printer.print_header()
 
+        solver_params = self.get_parameters()
         if self.step_size is None:
-            solver_params = self.line_searcher.get_parameters()
+            line_search_params = line_searcher.get_parameters()
         else:
             step_size = self.step_size
-            solver_params = {
+            line_search_params = {
                 'step_size_strategy': 'constant',
                 'step_size': step_size
             }
-
+        solver_params['line_search'] = line_search_params
         self._initialize_log(solver_params=solver_params)
 
         k = 0
+        t = 0
+        ss = 1.0 if self.step_size is None else self.step_size
+        # Initialize the point.
+        if init_point is not None:
+            x0 = init_point.x
+            y0 = init_point.y
+
         if x0 is None:
-            x = manifold.random_point(generator=generator)
+            x = manifold.random_point() # TODO: Deal with the seed
+            x.requires_grad=True
         else:
             x = x0
         if y0 is None:
-            y0 = torch.zeros_like( A(x) )
+            with torch.no_grad():
+                y0 = problem.A(x)
+                y0 = problem.prox_h(y0, 1/(self.lda+self.beta1))
 
         y_k = y0
         beta1_k = self.beta1
         beta_k = beta1_k/(k+1)**self.rho
         del_k = torch.max(((self.lda + beta_k)*y_k - y0).abs())
 
-        self.line_searcher.c_1 = self.c_1
-        self.line_searcher.nu = self.nu(beta_k)/self.Tk
+        nu_k = self.nu(beta_k)/self.Tk
         self.line_searcher.init_step_size = 1.0
-        Phi_k, grad_Phi_k, y_kp1 = self._initialize_sub_pgd_problem(
-                                    x,
-                                    func_f,
-                                    grad_f,
-                                    prox_h,
-                                    A,
-                                    nabla_AT,
-                                    y_k,
-                                    beta_k)
+        phi_k_problem = self._initialize_Phi_k_problem(
+            x_k = x,
+            y_k = y_k,
+            mnmx_problem = problem,
+            beta_k = beta_k,
+            )
 
-        f_x = func_f(x)
-        g_x = func_g(x) if func_g is not None else None
-        Phi_k_x = Phi_k(x)
-        grad_Phi_k_x = grad_Phi_k(x)
-        grad_Phi_k_x = -manifold.project(x, grad_Phi_k_x) # Descent direction
-        grad_norm = manifold.norm(x, grad_Phi_k_x, project=False)
-        row = [k, f_x]
-        row += [g_x] if g_x is not None else []
-        row += [Phi_k_x, grad_norm, del_k]
+        with torch.no_grad():
+            f_x = problem.func_f(x, no_grad=True)
+            g_x = problem.inner_product(x, y_k)
+        phi_k_x = phi_k_problem.objective(x, backward_pass=False)#True)
+        grad_phi_k_x = phi_k_problem.grad(x, repeat_forward=True)#False)
+        with torch.no_grad():
+            grad_phi_k_x = manifold.project(x, grad_phi_k_x)
+            desc_dir = -grad_phi_k_x # Descent direction
+            grad_norm = manifold.norm(x, grad_phi_k_x, project=False)
+
+        row = [k, t, f_x, g_x, phi_k_x, grad_norm, del_k, beta_k, nu_k, ss]
+        # ("f(x_kt)", "+.12e"),
+        # ("<A(x_kt), y_k>", "+.8e"),
+        # ("Φ_k(x_kt)", "+.12e"),
+        # ("||grad Φ_k(x_kt)||", ".6e"),
+        # ("δ_k", ".4e"),
+        # ("β_k", ".4e"),
+        # ("ν_k", ".4e"),
+        # ("α_kt+1", ".6e")
+        # ("α_kt (Armijo)", ".6e"),
         column_printer.print_row(row)
-        self._add_log_entry(k, x, Phi_k_x)
-        func_evals = 2 # Because f(x) get evaluated again inside Phi_k(x)
-
+        self._add_log_entry(k, x, phi_k_x)
+        func_evals = 3 # Because f(x) get evaluated again inside Phi_k(x) & func_f
+        x_kt = x.clone().detach()
         while True:
             k += 1
-            x_kt = x.clone()
-            line_searcher = self.line_searcher
-            line_searcher.nu = self.nu(beta_k)/self.Tk
-
             for t in range(self.Tk):
                 if self.step_size is None:
-                    line_searcher.old_f_x = None
-                    Phi_k_xkt = Phi_k(x_kt)
-                    grad_Phi_k_xkt = grad_Phi_k(x_kt)
-                    # Descent direction
-                    grad_Phi_k_xkt = -manifold.project(x, grad_Phi_k_xkt)
-                    grad_norm = manifold.norm(x, grad_Phi_k_xkt, project=False)
+                    # If the step size is determined with line search and
+                    # Barzilai-Borwein scheme.
+                    with torch.no_grad():
+                        f_x = problem.func_f(x_kt, no_grad=True)
+                        g_x = problem.inner_product(x_kt, y_k)
+                    phi_k_xkt = phi_k_problem.objective(
+                        x_kt,
+                        backward_pass=False#True
+                        )
+                    grad_phi_k_xkt = phi_k_problem.grad(
+                        x_kt,
+                        repeat_forward=True#False
+                        )
+                    with torch.no_grad():
+                        grad_phi_k_xkt = manifold.project(x_kt, grad_phi_k_xkt)
+                        desc_dir = -grad_phi_k_xkt # Descent direction
+                        grad_norm = manifold.norm(
+                            x_kt,
+                            grad_phi_k_xkt,
+                            project=False
+                            )
 
-                    step_size, x_ktp1, step_count = line_searcher.search(
-                                        Phi_k,
-                                        manifold,
-                                        x_kt,
-                                        grad_Phi_k_xkt,
-                                        Phi_k_xkt,
-                                        -(grad_norm**2)
-                                        )
+                    search_result = line_searcher.search(
+                        problem=phi_k_problem,
+                        x=x_kt,
+                        eta=desc_dir,
+                        f_x=phi_k_xkt,
+                        grad_f_x=grad_phi_k_xkt,
+                        nu_k=nu_k,
+                        )
 
-                    func_evals += step_count
-                    grad_Phi_k_xktp1 = grad_Phi_k(x_ktp1)
-                    grad_Phi_k_xktp1 = - manifold.project(x, grad_Phi_k_xktp1)
-                    # Previously `grad_Phi_k_xktp1` and `grad_Phi_k_xktp1` were set
-                    # to descent direction. The minus sign below is a correction for
-                    # that
-                    grad_tp1_norm = manifold.norm(x_ktp1,
-                                                grad_Phi_k_xktp1,
-                                                project=False)
-                    v_kt = -(grad_Phi_k_xktp1 - grad_Phi_k_xkt)
+                    with torch.no_grad():
+                        x_ktp1 = search_result.x_new
+                        grad_phi_k_xktp1 = search_result.new_grad_f_x
+                        func_evals += 2 +  search_result.step_count
+                        v_kt = grad_phi_k_xktp1 - grad_phi_k_xkt
+                        change = x_ktp1 - x_kt
+                        inn_prod = (v_kt*change).sum()
+                        if t % 2 ==0:
+                            alpha_BB_k_t = inn_prod.abs()/(v_kt.pow(2).sum()+1e-30)
+                        else:
+                            alpha_BB_k_t = (change.pow(2)).sum()/(inn_prod.abs()+1e-30)
 
-                    change = x_ktp1 - x_kt
-                    inn_prod = v_kt.flatten().dot( change.flatten())
-                    if t % 2 ==0:
-                        zeta_BB_k_t = (change**2).sum() / inn_prod.abs()
-                    else:
-                        zeta_BB_k_t = inn_prod.abs() / (v_kt**2).sum()
+                        next_step_size = max(
+                            min(alpha_BB_k_t, self.alpha_BB_max),
+                            self.alpha_BB_min
+                            )
+                        line_searcher.init_step_size = next_step_size
+                        ss = next_step_size
 
-                    next_step_size = max(
-                        min(zeta_BB_k_t, self.zeta_max/grad_tp1_norm),
-                        self.zeta_min)
-                    # Here I multiplied `next_step_size` with `grad_tp1_norm`
-                    # because the line searcher normalizes the step size with the
-                    # gradient norm
-                    line_searcher.init_step_size = next_step_size*grad_tp1_norm
+                        x_kt.copy_(x_ktp1)
+                    row = [k, t, f_x, g_x, phi_k_x, grad_norm, del_k,
+                           beta_k, nu_k,
+                           next_step_size, search_result.step_size]
+                    column_printer.print_row(row)
+                else: # If the step size is constant
+                    phi_k_xkt = phi_k_problem.objective(
+                        x_kt,
+                        backward_pass=False#True
+                        )
+                    grad_phi_k_xkt = phi_k_problem.grad(
+                        x_kt,
+                        repeat_forward=True#False
+                        )
 
-                    x_kt = x_ktp1
-                else:
-                    Phi_k_xkt = Phi_k(x_kt)
-                    grad_Phi_k_xkt = grad_Phi_k(x_kt)
-                    # Descent direction
-                    grad_Phi_k_xkt = -manifold.project(x, grad_Phi_k_xkt)
-                    x_ktp1 = manifold.retract(x_kt, step_size*grad_Phi_k_xkt)
-                    x_kt = x_ktp1
+                    with torch.no_grad():
+                        grad_phi_k_xkt = manifold.project(x_kt, grad_phi_k_xkt)
+                        desc_dir = -grad_phi_k_xkt # Descent direction
+                        grad_norm = manifold.norm(
+                            x_kt,
+                            grad_phi_k_xkt,
+                            project=False
+                            )
+                        x_ktp1 = manifold.retract(x_kt, ss*desc_dir)
+                        x_kt.copy_(x_ktp1)
+                        f_x = problem.func_f(x_kt, no_grad=True)
+                        g_x = problem.inner_product(x_kt, y_k)
+                    func_evals +=3
+                    row = [k, t, f_x, g_x, phi_k_x, grad_norm, del_k,
+                           beta_k, nu_k, ss]
+                    column_printer.print_row(row)
 
-            x = x_ktp1
-            Phi_k, grad_Phi_k, y_kp1 = self._initialize_sub_pgd_problem(
-                                            x,
-                                            func_f,
-                                            grad_f,
-                                            prox_h,
-                                            A,
-                                            nabla_AT,
-                                            y_k,
-                                            beta_k
-                                            )
 
-            del_kp1 = torch.max(((self.lda + beta_k)*y_kp1 - y_k).abs())
-
-            beta1_kp1 = (self.tau_2*beta1_k if (del_kp1 >= self.tau_1*del_k)
-                                            else beta1_k)
-            beta_kp1 = beta1_kp1 / (k + 1)**self.rho
+            with torch.no_grad():
+                x.copy_(x_kt)
+                Ax = problem.A(x)
+                z = (Ax + beta_k*y_k)/(self.lda+beta_k)
+                y_kp1 = problem.prox_h(z, 1/(self.lda+self.beta1))
+                del_kp1 = torch.max(((self.lda + beta_k)*y_kp1 - y_k).abs())
+                beta1_kp1 = (self.tau_2*beta1_k if (del_kp1 >= self.tau_1*del_k)
+                                                else beta1_k)
+                beta_kp1 = beta1_kp1 / (k + 1)**self.rho
 
             y_k = y_kp1
             beta_k = beta_kp1
             beta1_k = beta1_kp1
             del_k = del_kp1
+            nu_k = self.nu(beta_k)/self.Tk
+            phi_k_problem = self._initialize_Phi_k_problem(
+                x_k = x,
+                y_k = y_k,
+                mnmx_problem = problem,
+                beta_k = beta_k,
+                )
 
-            f_x = func_f(x)
-            g_x = func_g(x) if func_g is not None else None
-            Phi_k_x = Phi_k(x)
-            grad_Phi_k_x = grad_Phi_k(x)
-            # Descent direction
-            grad_Phi_k_x = -manifold.project(x, grad_Phi_k_x)
-            grad_norm = manifold.norm(x, grad_Phi_k_x, project=False)
-            row = [k, f_x]
-            row += [g_x] if g_x is not None else []
-            row += [Phi_k_x, grad_norm, del_k]
+            with torch.no_grad():
+                f_x = problem.func_f(x, no_grad=True)
+                g_x = problem.inner_product(x, y_k)
+            phi_k_x = phi_k_problem.objective(x, backward_pass=True)
+            grad_phi_k_x = phi_k_problem.grad(x, repeat_forward=False)
+            with torch.no_grad():
+                grad_phi_k_x = manifold.project(x, grad_phi_k_x)
+                grad_norm = manifold.norm(x, grad_phi_k_x, project=False)
+
+            row = [k, t, f_x, g_x, phi_k_x, grad_norm, del_k, beta_k, nu_k, ss]
             column_printer.print_row(row)
-            func_evals += 2 # Because f(x) get evaluated again in Phi_k(x)
-            self._add_log_entry(k, x, Phi_k_x)
+            func_evals += 3
+            # Because f(x) get evaluated again in Phi_k(x) and func_f.
+            # This can be made more efficient.
+            self._add_log_entry(k, x, phi_k_x)
 
-            stopping_criterion = self._check_stopping_criteria(start_time,
-                                                               k,
-                                                               grad_norm,
-                                                               step_size,
-                                                               func_evals)
+            stopping_criterion = self._check_stopping_criteria(
+                start_time,
+                k,
+                grad_norm,
+                ss,
+                func_evals
+                )
             if stopping_criterion:
                 if self.verbosity >=1:
                     print(stopping_criterion)
                     print("")
                 break
 
+        point = MinimaxProblemPoint(
+            x=x,
+            y=y_k,
+            f_x=f_x,
+            h_y= problem.func_h(y_k),
+            in_prod=g_x
+            )
+
         return self._return_result(
             start_time,
-            point = x,
-            objective = Phi_k_x,
+            point = point,
+            phi_k_x = phi_k_x,
             iterations = k,
             stopping_criterion = stopping_criterion,
             function_evaluations = func_evals,
-            step_size = step_size,
+            step_size = ss,
             gradient_norm = grad_norm,
             dual_variable_change = del_k
         )
 
 
-    def _initialize_sub_pgd_problem(self,
-                                    x,
-                                    func_f,
-                                    grad_f,
-                                    prox_h,
-                                    A,
-                                    nabla_AT,
-                                    y_k,
-                                    beta_k):
-        z = (A(x) + beta_k * y_k)/(self.lda + beta_k)
-        y_kp1 =prox_h( z, 1/(self.lda + beta_k) )
-        Phi_k = lambda x: (func_f(x) 
-                           + 0.5*((A(x) - y_k)**2).sum()/(self.lda + beta_k)
-                           - 0.5*(self.lda+beta_k)*((y_kp1 - y_k)**2).sum()
-                           - 0.5*beta_k*(y_k**2).sum()
-                           )
-        grad_Phi_k = lambda x: grad_f(x) + nabla_AT(y_kp1)
-        return Phi_k, grad_Phi_k, y_kp1
+    def _initialize_Phi_k_problem(self,
+            x_k: torch.Tensor,
+            y_k: torch.Tensor,
+            mnmx_problem: MinimaxProblem,
+            beta_k: float
+            ) -> Problem:
+        with torch.no_grad():
+            Ax_k = mnmx_problem.A(x_k)
+            y_kp_half = mnmx_problem.prox_h(
+                (Ax_k+beta_k*y_k)/(self.lda+beta_k),
+                1/(self.lda + beta_k)
+                )
+            y_kp_half_energy = y_kp_half.pow(2).sum()*self.lda/2
+            y_kp_half_minus_y_k_energy = (y_kp_half-y_k).pow(2).sum()
+            y_kp_half_minus_y_k_energy = beta_k*y_kp_half_minus_y_k_energy/2
+            h_y = mnmx_problem.func_h(y_kp_half)
+
+        def Phi_k(x):
+            f_x = mnmx_problem.func_f(x)
+            with torch.no_grad():
+                Ax = mnmx_problem.A(x)
+                Axy = (Ax*y_kp_half).sum()
+            return (f_x + Axy - h_y
+                    - y_kp_half_energy - y_kp_half_minus_y_k_energy)
+
+        def grad_Phi_k(x: torch.Tensor, repeat_forward=True, **kwargs):
+            # if repeat_forward or x.grad is None:
+            # required_grad = x.requires_grad
+            # if required_grad is False:
+            #     # x.requires_grad = True
+            #     x.requires_grad_(True)
+            #     # f_x = Phi_k(x)
+            x = x.detach().requires_grad_(True)
+            f_x = mnmx_problem.func_f(x, no_grad=False)
+            f_x.backward()
+            # x.requires_grad = required_grad
+            grad_f = x.grad
+            x.grad = None
+            with torch.no_grad():
+                Ax = mnmx_problem.A(x)
+                z = (Ax + beta_k*y_k)/(self.lda+beta_k)
+                prox_y = mnmx_problem.prox_h(z)
+                nabla_AT = mnmx_problem.nabla_AT(x)
+            grad = grad_f + nabla_AT@prox_y
+            return grad
+        return Problem(
+            manifold = mnmx_problem.manifold,
+            objective= Phi_k,
+            grad_f= grad_Phi_k,
+            )
 
     def _return_result(self, start_time, **kwargs) -> RADA_RGD_Result:
         return RADA_RGD_Result(
@@ -422,14 +488,15 @@ class RADA_RGD:   # pylint: disable=invalid-name
         )
 
     def _check_stopping_criteria(self,
-                             start_time,
-                             iteration,
-                             gradient_norm,
-                             step_size,
-                             function_evaluations):
+            start_time,
+            iteration,
+            gradient_norm,
+            step_size,
+            function_evaluations
+            ) -> str:
         run_time = perf_counter() - start_time
         reason = None
-        if run_time >= self.max_time:
+        if self.max_time is not None and run_time >= self.max_time:
             reason = f"Terminated - max time reached after {iteration} iterations."
         elif iteration>= self.max_it:
             reason = ("Terminated - maximum number of iterations reached after "
@@ -466,6 +533,31 @@ class RADA_RGD:   # pylint: disable=invalid-name
             'iterations': collections.defaultdict(list)
             }
 
+    def _initialize_column_printer(self) -> printer.VoidPrinter:
+        if self.verbosity >= 1:
+            print("RADA RGD Optimizing...")
+        if self.verbosity >= 2:
+            iteration_format_length = int(math.log(self.max_it, 10)) + 1
+            iteration_format_length2 = int(math.log(self.Tk, 10)) + 1
+            columns = [
+                ("k", f"{iteration_format_length}d"),
+                ("t", f"{iteration_format_length2}d"),
+                ("f(x)", "+.12e"),
+                ("<A(x), y>", "+.8e"),
+                ("Φ_k(x)", "+.12e"),
+                ("||grad Φ_k(x)||", ".6e"),
+                ("δ_k", ".4e"),
+                ("β_k", ".4e"),
+                ("ν_k", ".4e"),
+                ("α_kt+1", ".6e"),
+                ]
+            if self.step_size is None:
+                columns.append(("α_kt (Armijo)", ".6e"))
+            column_printer = printer.ColumnPrinter(columns=columns)
+        else:
+            column_printer = printer.VoidPrinter()
+        return column_printer
+
     def _add_log_entry(self, iteration, point, objective, **kwargs):
         if self.log_verbosity <=0:
             return
@@ -489,7 +581,18 @@ class RADA_RGD:   # pylint: disable=invalid-name
         return name
 
     def get_parameters(self) -> dict:
+        """Get the algorithm parameters as a dictionary"""
         params = {
+            'lda': self.lda,
+            'beta1': self.beta1,
+            'Tk': self.Tk,    # py-lint: disable=invalid-name
+            'rho': self.rho,
+            'R': self.R,
+            'eps': self.eps,
+            'tau_1': self.tau_1,
+            'tau_2': self.tau_2,
+            'alpha_BB_max': self.alpha_BB_max,
+            'alpha_BB_min': self.alpha_BB_min,
             'step_size': self.step_size,
             'max_it': self.max_it,
             'min_gradient_norm': self.min_gradient_norm,

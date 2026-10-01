@@ -68,15 +68,15 @@ class Steifel(Manifold):
             return torch.linalg.norm(v)  # pylint: disable=not-callable
 
 
-    def random_point(self, generator=None):
+    def random_point(self, generator:torch.Generator=None):
         point = torch.randn((self._n, self._p),
-                           generator=generator,
+                           generator=generator, # TODO: Fix this nonsense.
                            dtype=self.dtype,
                            device=self.device)
         Q, _ = torch.linalg.qr(point) # pylint: disable=not-callable,invalid-name
         return Q                      # pylint: disable=invalid-name
 
-    def random_tangent(self, point, generator=None):
+    def random_tangent(self, point, generator:torch.Generator=None):
         vector = torch.randn((self._n, self._p),
                            generator=generator,
                            dtype=self.dtype,
@@ -90,6 +90,8 @@ class Steifel(Manifold):
 
     def _retract_qr(self, point, vector):
         # TODO: Check if there is an issue with QR
+        # TODO: FIX: QR decomposition with pytorch doesnt ensure that the
+        # elements of R are positive. This results in wrong retractions.
         x = point + vector
         Q, _ = torch.linalg.qr(x) # pylint: disable=not-callable,invalid-name
         return Q                  # pylint: disable=invalid-name
@@ -114,6 +116,19 @@ class Steifel(Manifold):
         XTY = X.T@Y                                 # pylint: disable=invalid-name
         skewXTY = 0.5 * (XTY - XTY.T)               # pylint: disable=invalid-name
         return (Y - X@XTY) + X @ skewXTY            # pylint: disable=invalid-name
+
+    def project_to_manifold(self, X: torch.Tensor) -> torch.Tensor:
+        if self.__retraction == 'polar':
+            U, _, Vt= torch.linalg.svd(X, full_matrices = False) # pylint: disable=not-callable,invalid-name
+            return U @ Vt                                        # pylint: disable=invalid-name
+        elif self.__retraction == 'qr':
+            Q, _ = torch.linalg.qr(X) # pylint: disable=not-callable,invalid-name
+            return Q                  # pylint: disable=invalid-name
+        else:
+            raise NotImplementedError(
+                (f"Retraction: {self.__retraction} is not supported")
+            )
+
 
     def to(self, *args, **kwargs):
         super().to(*args, **kwargs)

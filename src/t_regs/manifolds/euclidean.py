@@ -34,14 +34,14 @@ class Euclidean(Manifold):
     def norm(self, point, v, project = True): # pylint:disable=arguments-renamed
         return (v**2).sum()
 
-    def random_point(self, generator=None):
+    def random_point(self, generator:torch.Generator=None):
         point = torch.randn(self._dims,
                            generator=generator,
                            dtype=self.dtype,
                            device=self.device)
         return point
 
-    def random_tangent(self, point, generator=None):
+    def random_tangent(self, point, generator:torch.Generator = None):
         vector = torch.randn(self._dims,
                            generator=generator,
                            dtype=self.dtype,
@@ -64,6 +64,9 @@ class Euclidean(Manifold):
         :math:`T_X \mathcal{M}` of the manifold at :math:`X`.
         """
         return Y
+
+    def project_to_manifold(self, X: torch.Tensor) -> torch.Tensor:
+        return X
 
     def to(self, *args, **kwargs):
         super().to(*args, **kwargs)

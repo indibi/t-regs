@@ -83,6 +83,7 @@ class Problem:
     def grad(self,
              point: torch.Tensor | ManifoldParameter,
              repeat_forward: bool = True,
+             **kwargs,
              ) -> torch.Tensor:
         """Calculate the gradient of the objective function at `point`
         
@@ -90,17 +91,25 @@ class Problem:
         ----------
             point: torch.Tensor
                 Point of evaluation.
-            repeat_forward: bool = False
+            repeat_forward: bool = True
                 If set to true, repeats the forward pass of the objective to
                 calculate the gradient with backpropagation, else returns the
                 gradient stored at the tensor `point`.
+            **kwargs:
+                Additional arguments passed onto the custom `_grad_f` function.
         """
         if self._grad_f is None:
             if repeat_forward or point.grad is None:
+                required_grad = point.requires_grad
+                if required_grad is False:
+                    point.requires_grad = True
                 self.objective(point, backward_pass=repeat_forward)
+                point.requires_grad = required_grad
             grad = point.grad
         else:
-            grad = self._grad_f(point)
+            grad = self._grad_f(point,
+                                repeat_forward=repeat_forward,
+                                **kwargs)
         return grad
 
     @property
