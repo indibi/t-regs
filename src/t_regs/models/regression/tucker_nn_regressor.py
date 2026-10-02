@@ -354,7 +354,7 @@ class TuckerRegressor(nn.Module):
     @torch.no_grad()
     def score(self, pred:torch.Tensor, Y:torch.Tensor) -> float:    # pylint: disable=invalid-name
         # TODO: Add docstring and perhaps other options for scores.
-        if self.regression_type is not 'multinomial':
+        if self.regression_type != 'multinomial':
             Y = Y.reshape((-1,) + self.task_dims)
         else:
             Y = Y.reshape((-1,1))
